@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   
   // Types
   interface Image {
@@ -71,6 +71,179 @@ let currentOffsetY: number = 0;
   let lastClientY: number = 0;
 
   let rafId: number | null = null;
+
+  // --- Screen toggle (single file, two screens) ---
+  type Screen = 'grid' | 'scroll';
+  let screen: Screen = 'grid';
+
+  function setScreen(next: Screen): void {
+    screen = next;
+
+    // Ensure grid drag doesn't "stick" when switching away
+    if (screen !== 'grid') {
+      isDragging = false;
+      velocityX = 0;
+      velocityY = 0;
+    }
+
+    // Start/stop scroll loop + wheel listener
+    if (screen === 'scroll') {
+      enableScrollMode();
+    } else {
+      disableScrollMode();
+    }
+  }
+
+  // --- Scroll screen (smooth/inertial virtual scroll + velocity-based distortion) ---
+  const scrollProjects: string[] = [
+    'Dior',
+    'Renault',
+    'Biotherm',
+    'Diptyque',
+    'Chanel',
+    'Van Cleef',
+    'Beau Band',
+    'Cartier',
+    'Saint Laurent',
+    'Loewe'
+  ];
+
+let scrollViewport: HTMLDivElement | null = null;
+let scrollWrap: HTMLDivElement | null = null;
+let scrollItems: HTMLDivElement[] = [];
+
+function scrollItemRef(node: HTMLDivElement, index: number) {
+  scrollItems[index] = node;
+  return {
+    destroy() {
+      if (scrollItems[index] === node) {
+        // keep array shape stable; remove reference
+        scrollItems[index] = undefined as unknown as HTMLDivElement;
+      }
+    }
+  };
+}
+
+  let scrollTarget = 0;    // px
+  let scrollCurrent = 0;   // px
+  let scrollVel = 0;       // px/s (smoothed)
+  let scrollPrev = 0;
+
+  let scrollRafId: number | null = null;
+  let scrollLastT = 0;
+
+  // Tune the scroll feel
+  const SCROLL_RESP = 7.5;        // lower = floatier
+  const SCROLL_FRICTION_PER_SEC = 2.4; // lower = longer glide
+  const SCROLL_MAX_VEL = 2600;    // clamp px/s
+
+  function clamp(n: number, a: number, b: number): number {
+    return Math.max(a, Math.min(b, n));
+  }
+
+  function enableScrollMode(): void {
+    if (typeof window === 'undefined') return;
+    // Reset so it always feels consistent when switching in
+    scrollTarget = 0;
+    scrollCurrent = 0;
+    scrollVel = 0;
+    scrollPrev = 0;
+    scrollLastT = 0;
+
+    window.addEventListener('wheel', onWheelScroll as any, { passive: false } as any);
+    startScrollLoop();
+  }
+
+  function disableScrollMode(): void {
+    if (typeof window === 'undefined') return;
+    window.removeEventListener('wheel', onWheelScroll as any);
+    if (scrollRafId !== null) {
+      cancelAnimationFrame(scrollRafId);
+      scrollRafId = null;
+    }
+    scrollLastT = 0;
+  }
+
+  function onWheelScroll(e: WheelEvent): void {
+    if (typeof window === 'undefined') return;
+    if (screen !== 'scroll') return;
+    e.preventDefault();
+
+    // Trackpads can be tiny deltas; normalize a bit for "designed" feel
+    scrollTarget += e.deltaY;
+    startScrollLoop();
+  }
+
+  function startScrollLoop(): void {
+    if (typeof window === 'undefined') return;
+    if (scrollRafId !== null) return;
+
+    const tick = (t: number): void => {
+      if (screen !== 'scroll') {
+        scrollRafId = null;
+        return;
+      }
+
+      if (!scrollLastT) scrollLastT = t;
+      const dt = Math.min(0.05, (t - scrollLastT) / 1000);
+      scrollLastT = t;
+
+      // Ease current -> target (frame-rate independent)
+      const alpha = 1 - Math.exp(-SCROLL_RESP * dt);
+      scrollCurrent += (scrollTarget - scrollCurrent) * alpha;
+
+      // Velocity (px/s) + friction smoothing
+      const rawVel = (scrollCurrent - scrollPrev) / Math.max(0.0001, dt);
+      scrollPrev = scrollCurrent;
+
+      const friction = Math.exp(-SCROLL_FRICTION_PER_SEC * dt);
+      scrollVel = scrollVel * friction + rawVel * (1 - friction);
+      scrollVel = clamp(scrollVel, -SCROLL_MAX_VEL, SCROLL_MAX_VEL);
+
+      // Virtual scroll translate
+      if (scrollWrap) {
+        scrollWrap.style.transform = `translate3d(0, ${-scrollCurrent}px, 0)`;
+      }
+
+      // Distortion per item (strongest around center)
+      const vh = window.innerHeight;
+      const vNorm = scrollVel / SCROLL_MAX_VEL; // -1..1
+
+      for (const el of scrollItems) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        const y = (r.top + r.height / 2) / vh;   // 0..1
+        const w = Math.sin(y * Math.PI);         // 0..1..0
+
+        // Strong rubber stretch: use a non-linear curve so small scrolls don't overreact,
+        // but fast scrolls stretch a lot.
+        const vAbs = Math.abs(vNorm);
+        const vEase = Math.pow(vAbs, 0.6); // 0..1, more “punch” at higher speeds
+
+        // Really noticeable vertical stretch (up to ~2.4x in the center at max speed)
+        const stretchY = 1 + vEase * 1.4 * w;
+
+        // Counter-squash X so it feels like elastic material
+        const squashX = 1 - vEase * 0.28 * w;
+
+        // No translate bounce — pure stretch
+        el.style.transform = `scaleX(${squashX}) scaleY(${stretchY})`;
+      }
+
+      // Stop when settled
+      const dist = Math.abs(scrollTarget - scrollCurrent);
+      const speed = Math.abs(scrollVel);
+
+      if (dist < 0.3 && speed < 12) {
+        scrollRafId = null;
+        return;
+      }
+
+      scrollRafId = requestAnimationFrame(tick) as unknown as number;
+    };
+
+    scrollRafId = requestAnimationFrame(tick) as unknown as number;
+  }
 
   // Only regenerate tiles when we move into a new center cell
   let lastCenterCol: number = Number.NaN;
@@ -262,6 +435,12 @@ onMount((): void => {
 
     visibleTiles = getVisibleTiles();
     startAnimationLoop();
+
+    if (screen === 'scroll') enableScrollMode();
+});
+
+onDestroy(() => {
+  disableScrollMode();
 });
 </script>
 
@@ -272,28 +451,54 @@ onMount((): void => {
   on:pointercancel={handlePointerUp}
 />
 <div class="container">
-  <div
-    class="grid"
-    class:dragging={isDragging}
-    bind:this={container}
-    on:pointerdown={handlePointerDown}
-    role="application"
-    tabindex="0"
-  >
-    <div class="gridInner" style="transform: translate3d({currentOffsetX}px, {currentOffsetY}px, 0);">
-    {#each visibleTiles as tile (tile.x + '_' + tile.y)}
-      <div
-        class="tile"
-        style="transform: translate3d({tile.x}px, {tile.y}px, 0);"
-      >
-        <img src={tile.image.url} alt="Grid item {tile.image.id}" draggable="false" decoding="async" />
-      </div>
-    {/each}
-    </div>
+  <div class="topbar">
+    <button class:active={screen === 'grid'} on:click={() => setScreen('grid')}>
+      Infinite grid
+    </button>
+    <button class:active={screen === 'scroll'} on:click={() => setScreen('scroll')}>
+      Scroll
+    </button>
   </div>
+
+  {#if screen === 'grid'}
+    <div
+      class="grid"
+      class:dragging={isDragging}
+      bind:this={container}
+      on:pointerdown={handlePointerDown}
+      role="application"
+      tabindex="0"
+    >
+      <div class="gridInner" style="transform: translate3d({currentOffsetX}px, {currentOffsetY}px, 0);">
+        {#each visibleTiles as tile (tile.x + '_' + tile.y)}
+          <div
+            class="tile"
+            style="transform: translate3d({tile.x}px, {tile.y}px, 0);"
+          >
+            <img src={tile.image.url} alt="Grid item {tile.image.id}" draggable="false" decoding="async" />
+          </div>
+        {/each}
+      </div>
+    </div>
+  {:else}
+    <div class="scrollViewport" bind:this={scrollViewport}>
+      <div class="scrollWrap" bind:this={scrollWrap}>
+        {#each scrollProjects as p, i (p)}
+          <div class="scrollItem" use:scrollItemRef={i}>
+            {p}
+          </div>
+        {/each}
+      </div>
+      <div class="scrollHint">Use mouse wheel / trackpad to scroll</div>
+    </div>
+  {/if}
   
   <div class="instructions">
-    Click and drag to explore the endless grid
+    {#if screen === 'grid'}
+      Click and drag to explore the endless grid
+    {:else}
+      Scroll to animate the text list
+    {/if}
   </div>
 </div>
 
@@ -304,6 +509,68 @@ onMount((): void => {
     overflow: hidden;
     position: relative;
     background: #1a1a1a;
+  }
+
+  .topbar {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+  }
+
+  .topbar button {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(0, 0, 0, 0.35);
+    color: rgba(255, 255, 255, 0.92);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+  }
+
+  .topbar button.active {
+    background: rgba(255, 255, 255, 0.92);
+    color: #111;
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .scrollViewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #0b0b0b;
+    color: #fff;
+    touch-action: none;
+  }
+
+  .scrollWrap {
+    will-change: transform;
+    padding: 14vh 8vw;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .scrollItem {
+    font: 700 clamp(44px, 7vw, 120px) / 0.95 system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.03em;
+    padding: 18px 0;
+    transform-origin: center;
+    will-change: transform;
+    user-select: none;
+  }
+
+  .scrollHint {
+    position: absolute;
+    bottom: 22px;
+    right: 22px;
+    color: rgba(255, 255, 255, 0.7);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    pointer-events: none;
   }
   
   .grid {
