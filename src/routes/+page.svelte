@@ -94,7 +94,7 @@ let currentOffsetY: number = 0;
     }
   }
 
-  // --- Scroll screen (smooth/inertial virtual scroll + velocity-based distortion) ---
+  // --- Scroll screen (iOS-like picker: inertial scroll + center-weighted vertical stretch + infinite loop) ---
   const scrollProjects: string[] = [
     'Dior',
     'Renault',
@@ -109,7 +109,7 @@ let currentOffsetY: number = 0;
   ];
 
 let scrollViewport: HTMLDivElement | null = null;
-let scrollWrap: HTMLDivElement | null = null;
+let scrollWrap: HTMLDivElement | null = null; // unused for picker, but kept for type completeness
 let scrollItems: HTMLDivElement[] = [];
 
 function scrollItemRef(node: HTMLDivElement, index: number) {
@@ -124,21 +124,60 @@ function scrollItemRef(node: HTMLDivElement, index: number) {
   };
 }
 
-  let scrollTarget = 0;    // px
-  let scrollCurrent = 0;   // px
-  let scrollVel = 0;       // px/s (smoothed)
-  let scrollPrev = 0;
+  // iOS-like picker scroll state
+  let scrollTarget = 0;   // px (wheel input accumulates here)
+  let scrollCurrent = 0;  // px (smoothed / inertial)
+  let scrollPrev = 0;     // px (for velocity)
+  let scrollVel = 0;      // px/s (smoothed velocity)
+  // Wheel/trackpad impulse velocity (used for stretch like the reference)
+  let wheelVel = 0;        // px/s (signed)
+  let lastWheelT = 0;      // ms timestamp
+  let scrollDir = 1;       // +1 scrolling down, -1 scrolling up
+
+  // For infinite looping render
+  const PICKER_ITEM_H = 112;       // px (fixed step height; tighter spacing like iOS picker)
+  const PICKER_RADIUS = 8;         // render (2*R+1) items
+  const pickerSlots: number[] = Array.from({ length: PICKER_RADIUS * 2 + 1 }, (_, i) => i - PICKER_RADIUS);
+
+  let scrollBaseIndex = 0; // integer index into the infinite stream
+  let scrollFrac = 0;      // 0..PICKER_ITEM_H fractional scroll
 
   let scrollRafId: number | null = null;
   let scrollLastT = 0;
 
-  // Tune the scroll feel
-  const SCROLL_RESP = 7.5;        // lower = floatier
-  const SCROLL_FRICTION_PER_SEC = 2.4; // lower = longer glide
-  const SCROLL_MAX_VEL = 2600;    // clamp px/s
+  // Tuning: position inertia + stretch response
+  const SCROLL_POS_RESP = 14;      // higher = less lag, lower = floatier
+  const SCROLL_VEL_SMOOTH = 0.22;  // 0..1 (higher = more reactive velocity)
+  const SCROLL_MAX_VEL = 5000;     // clamp px/s for normalization
+  // Stretch is driven more by wheel impulse than by inertial position velocity
+  const WHEEL_MAX_VEL = 8000;      // px/s clamp for wheel impulse normalization
+  const WHEEL_VEL_DECAY = 14;      // 1/s decay back to 0 (higher = quicker settle)
+
+  // Stretch response is speed-dependent:
+  // - slow scroll -> slow stretch changes
+  // - fast scroll -> quick stretch changes
+  const STRETCH_RESP_MIN = 3;      // response at very low speed
+  const STRETCH_RESP_MAX = 18;     // response at max speed
+  const STRETCH_MAX_Y = 1.2;       // extra scaleY at center at max speed (matches reference better)
+  const STRETCH_SIGMA = 0.85;      // sigma in "slot units" (smaller = tighter center focus)
+  const EDGE_SHRINK_MAX_Y = 0.35;  // max compression at edges at max speed
+  const MIN_SCALE_Y = 0.55;        // never shrink below this
+  let scrollStretch = 0;           // 0..1
 
   function clamp(n: number, a: number, b: number): number {
     return Math.max(a, Math.min(b, n));
+  }
+
+  function slotWeight(slot: number): number {
+    // Continuous center weight: distance from the center line in "slot units".
+    // Includes scrollFrac so the weight shifts smoothly between items.
+    const dSlots = (slot * PICKER_ITEM_H - scrollFrac) / PICKER_ITEM_H; // 0 means exactly centered
+    const sigma = Math.max(0.35, STRETCH_SIGMA); // guard
+    const x = dSlots / sigma;
+    const w = Math.exp(-(x * x) / 2); // gaussian 0..1
+
+    // Sharpen: make center much stronger, edges fall off faster
+    return Math.pow(w, 1.8);
   }
 
   function enableScrollMode(): void {
@@ -146,8 +185,14 @@ function scrollItemRef(node: HTMLDivElement, index: number) {
     // Reset so it always feels consistent when switching in
     scrollTarget = 0;
     scrollCurrent = 0;
-    scrollVel = 0;
     scrollPrev = 0;
+    scrollVel = 0;
+    wheelVel = 0;
+    lastWheelT = 0;
+    scrollDir = 1;
+    scrollStretch = 0;
+    scrollBaseIndex = 0;
+    scrollFrac = 0;
     scrollLastT = 0;
 
     window.addEventListener('wheel', onWheelScroll as any, { passive: false } as any);
@@ -162,6 +207,13 @@ function scrollItemRef(node: HTMLDivElement, index: number) {
       scrollRafId = null;
     }
     scrollLastT = 0;
+    scrollStretch = 0;
+    // Reset any transforms on picker items
+    for (const el of scrollItems) {
+      if (!el) continue;
+      el.style.transform = '';
+      el.style.opacity = '';
+    }
   }
 
   function onWheelScroll(e: WheelEvent): void {
@@ -169,8 +221,24 @@ function scrollItemRef(node: HTMLDivElement, index: number) {
     if (screen !== 'scroll') return;
     e.preventDefault();
 
-    // Trackpads can be tiny deltas; normalize a bit for "designed" feel
-    scrollTarget += e.deltaY;
+    // Vertical-only wheel input (ignore deltaX from trackpads)
+    const dy = e.deltaY;
+    scrollTarget += dy;
+
+    // Compute signed wheel impulse velocity (px/s) from event timing
+    const now = performance.now();
+    if (!lastWheelT) lastWheelT = now;
+    const dt = Math.max(0.001, (now - lastWheelT) / 1000);
+    lastWheelT = now;
+
+    const instWheelVel = dy / dt; // px/s signed
+
+    // Smooth but keep it responsive (impulse feel)
+    wheelVel += (instWheelVel - wheelVel) * 0.55;
+
+    // Update direction immediately for “pulled” look
+    if (wheelVel !== 0) scrollDir = wheelVel > 0 ? 1 : -1;
+
     startScrollLoop();
   }
 
@@ -188,53 +256,50 @@ function scrollItemRef(node: HTMLDivElement, index: number) {
       const dt = Math.min(0.05, (t - scrollLastT) / 1000);
       scrollLastT = t;
 
-      // Ease current -> target (frame-rate independent)
-      const alpha = 1 - Math.exp(-SCROLL_RESP * dt);
-      scrollCurrent += (scrollTarget - scrollCurrent) * alpha;
+      // Smooth position toward target (frame-rate independent)
+      const alphaPos = 1 - Math.exp(-SCROLL_POS_RESP * dt);
+      scrollCurrent += (scrollTarget - scrollCurrent) * alphaPos;
 
-      // Velocity (px/s) + friction smoothing
+      // Velocity from smoothed position (px/s)
       const rawVel = (scrollCurrent - scrollPrev) / Math.max(0.0001, dt);
       scrollPrev = scrollCurrent;
 
-      const friction = Math.exp(-SCROLL_FRICTION_PER_SEC * dt);
-      scrollVel = scrollVel * friction + rawVel * (1 - friction);
-      scrollVel = clamp(scrollVel, -SCROLL_MAX_VEL, SCROLL_MAX_VEL);
+      // Smooth inertial velocity (no oscillation)
+      const vClamped = clamp(rawVel, -SCROLL_MAX_VEL, SCROLL_MAX_VEL);
+      scrollVel += (vClamped - scrollVel) * SCROLL_VEL_SMOOTH;
 
-      // Virtual scroll translate
-      if (scrollWrap) {
-        scrollWrap.style.transform = `translate3d(0, ${-scrollCurrent}px, 0)`;
-      }
+      // Decay wheel impulse velocity toward 0 (keeps “snap” without bounce)
+      const wheelDecay = Math.exp(-WHEEL_VEL_DECAY * dt);
+      wheelVel *= wheelDecay;
+      if (Math.abs(wheelVel) < 5) wheelVel = 0;
 
-      // Distortion per item (strongest around center)
-      const vh = window.innerHeight;
-      const vNorm = scrollVel / SCROLL_MAX_VEL; // -1..1
+      // Direction: wheel impulse wins; fallback to inertial velocity
+      const dirSource = wheelVel !== 0 ? wheelVel : scrollVel;
+      if (dirSource !== 0) scrollDir = dirSource > 0 ? 1 : -1;
 
-      for (const el of scrollItems) {
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        const y = (r.top + r.height / 2) / vh;   // 0..1
-        const w = Math.sin(y * Math.PI);         // 0..1..0
+      // Stretch should follow wheel impulse more than inertial motion
+      const wheelClamped = clamp(wheelVel, -WHEEL_MAX_VEL, WHEEL_MAX_VEL);
+      const speedNorm = clamp(Math.abs(wheelClamped) / WHEEL_MAX_VEL, 0, 1);
 
-        // Strong rubber stretch: use a non-linear curve so small scrolls don't overreact,
-        // but fast scrolls stretch a lot.
-        const vAbs = Math.abs(vNorm);
-        const vEase = Math.pow(vAbs, 0.6); // 0..1, more “punch” at higher speeds
+      // Speed -> stretch amount: slow scroll barely stretches, fast scroll stretches a lot
+      const desiredStretch = clamp(Math.pow(speedNorm, 0.62), 0, 1);
 
-        // Really noticeable vertical stretch (up to ~2.4x in the center at max speed)
-        const stretchY = 1 + vEase * 1.4 * w;
+      // Stretch follows speed and returns smoothly (no bounce),
+      // with a response that depends on scroll speed so slow scroll feels slow.
+      const respStretch = STRETCH_RESP_MIN + (STRETCH_RESP_MAX - STRETCH_RESP_MIN) * speedNorm;
+      const alphaStretch = 1 - Math.exp(-respStretch * dt);
+      scrollStretch += (desiredStretch - scrollStretch) * alphaStretch;
 
-        // Counter-squash X so it feels like elastic material
-        const squashX = 1 - vEase * 0.28 * w;
+      // Infinite looping: derive base index and fractional offset
+      const base = Math.floor(scrollCurrent / PICKER_ITEM_H);
+      scrollBaseIndex = base;
 
-        // No translate bounce — pure stretch
-        el.style.transform = `scaleX(${squashX}) scaleY(${stretchY})`;
-      }
+      // Always keep fractional in [0..H)
+      scrollFrac = scrollCurrent - base * PICKER_ITEM_H;
 
-      // Stop when settled
+      // Stop when position and stretch are settled (including wheel impulse)
       const dist = Math.abs(scrollTarget - scrollCurrent);
-      const speed = Math.abs(scrollVel);
-
-      if (dist < 0.3 && speed < 12) {
+      if (dist < 0.6 && scrollStretch < 0.01 && Math.abs(scrollVel) < 3 && wheelVel === 0) {
         scrollRafId = null;
         return;
       }
@@ -482,14 +547,40 @@ onDestroy(() => {
     </div>
   {:else}
     <div class="scrollViewport" bind:this={scrollViewport}>
-      <div class="scrollWrap" bind:this={scrollWrap}>
-        {#each scrollProjects as p, i (p)}
-          <div class="scrollItem" use:scrollItemRef={i}>
-            {p}
+      <div class="picker">
+
+        {#each pickerSlots as slot, i (slot)}
+          <div
+            class="scrollItem pickerItem"
+            use:scrollItemRef={i}
+            style="
+              top: calc(50% + {(slot * PICKER_ITEM_H - scrollFrac)}px);
+              opacity: {0.55 + 0.45 * slotWeight(slot)};
+              transform: translateY(-50%);
+            "
+          >
+            <div
+              class="pickerLabel"
+              style="
+                transform-origin: {scrollDir > 0 ? '50% 0%' : '50% 100%'};
+                transform: translateY({scrollDir * scrollStretch * slotWeight(slot) * 14}px)
+                  scaleY({
+                    Math.max(
+                      1
+                        + scrollStretch * slotWeight(slot) * STRETCH_MAX_Y
+                        - scrollStretch * (1 - slotWeight(slot)) * EDGE_SHRINK_MAX_Y,
+                      MIN_SCALE_Y
+                    )
+                  });
+              "
+            >
+              {scrollProjects[((scrollBaseIndex + slot) % scrollProjects.length + scrollProjects.length) % scrollProjects.length]}
+            </div>
           </div>
         {/each}
       </div>
-      <div class="scrollHint">Use mouse wheel / trackpad to scroll</div>
+
+      <div class="scrollHint">Scroll like iOS picker</div>
     </div>
   {/if}
   
@@ -548,19 +639,59 @@ onDestroy(() => {
     touch-action: none;
   }
 
-  .scrollWrap {
-    will-change: transform;
-    padding: 14vh 8vw;
-    transform: translate3d(0, 0, 0);
+  .scrollViewport::before,
+  .scrollViewport::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 28%;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .scrollViewport::before {
+    top: 0;
+    background: linear-gradient(to bottom, rgba(11,11,11,1), rgba(11,11,11,0));
+  }
+
+  .scrollViewport::after {
+    bottom: 0;
+    background: linear-gradient(to top, rgba(11,11,11,1), rgba(11,11,11,0));
+  }
+
+  .picker {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+
+  .pickerItem {
+    position: absolute;
+    left: 8vw;
+    right: 8vw;
+    height: 112px; /* must match PICKER_ITEM_H */
+    display: flex;
+    align-items: center;
+    transform-origin: center;
+    will-change: transform, opacity;
   }
 
   .scrollItem {
     font: 700 clamp(44px, 7vw, 120px) / 0.95 system-ui, -apple-system, sans-serif;
     letter-spacing: -0.03em;
-    padding: 18px 0;
+    user-select: none;
+    transform-origin: center;
+    will-change: transform, opacity;
+  }
+
+  .pickerLabel {
+    width: 100%;
     transform-origin: center;
     will-change: transform;
-    user-select: none;
+    display: inline-block;
+    backface-visibility: hidden;
   }
 
   .scrollHint {
