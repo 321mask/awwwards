@@ -36,11 +36,22 @@ export function createPickerScroll(opts: {
 
   const EDGE_SHRINK_MAX_Y = 0.35;
   const MIN_SCALE_Y = 0.55;
+  const CENTER_SHRINK_MAX_Y = 0.65; // max shrink at center at max speed (in scroll direction)
+  const BEHIND_STRETCH_MAX_Y = 0.25; // slight stretch on the trailing side for contrast
 
   const EDGE_PULL_MAX = 0.42;
   const EDGE_PULL_POW = 1.35;
   const EDGE_PULL_AHEAD = 1.0;
   const EDGE_PULL_BEHIND = 0.18;
+
+  // Delayed pull timing (bigger = quicker response)
+  const PULL_RESP_BASE = 10;
+  const PULL_RESP_AHEAD = 1.35;  // leading side responds first
+  const PULL_RESP_BEHIND = 0.55; // trailing side lags (delayed pulling feel)
+
+  // Directional deform (ahead shrinks more, behind stretches a bit)
+  const SHRINK_AHEAD_MAX = 0.55;
+  const STRETCH_BEHIND_MAX = 0.35;
 
   function clamp(n: number, a: number, b: number) {
     return Math.max(a, Math.min(b, n));
@@ -155,12 +166,26 @@ export function createPickerScroll(opts: {
   }
 
   // Helpers for markup (computed per slot)
-  function labelScaleY(slot: number, frac: number, stretch: number) {
-    const w = slotWeight(slot, frac);
-    return Math.max(
-      1 + stretch * w * STRETCH_MAX_Y - stretch * (1 - w) * EDGE_SHRINK_MAX_Y,
-      MIN_SCALE_Y
-    );
+  function labelScaleY(slot: number, frac: number, stretch: number, dir: number) {
+    const w = slotWeight(slot, frac); // 0..1 (center-weighted)
+    const edge = 1 - w;              // 0..1 (edge-weighted)
+
+    // Directional weighting: the side you're scrolling toward shrinks more,
+    // the trailing side can stretch slightly for contrast.
+    const ahead = slot * dir > 0 ? 1 : 0;
+    const behind = 1 - ahead;
+
+    // Base: shrink at center with speed (inverse of previous behavior)
+    const shrinkCenter = stretch * w * CENTER_SHRINK_MAX_Y;
+
+    // Extra shrink toward edges on the ahead side (more apparent “compression”)
+    const shrinkAheadEdge = stretch * edge * EDGE_SHRINK_MAX_Y * ahead;
+
+    // Optional slight stretch on the trailing side so the direction is readable
+    const stretchBehind = stretch * edge * BEHIND_STRETCH_MAX_Y * behind;
+
+    const scale = 1 - shrinkCenter - shrinkAheadEdge + stretchBehind;
+    return Math.max(scale, MIN_SCALE_Y);
   }
 
   function labelOpacity(slot: number, frac: number) {
