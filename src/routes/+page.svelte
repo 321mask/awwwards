@@ -421,7 +421,7 @@
   ];
 
   // --- Animated title (center typing → becomes top-left logo) ---
-  const FULL_TITLE = "renata zaripzianova — traveller, designer";
+  const FULL_TITLE = "renata zaripzianova — traveler, designer";
   let typed = "";
   let typingDone = false;
   let titleToLogo = false;
@@ -622,7 +622,8 @@
   .topbar {
     position: absolute;
     top: 16px;
-    left: 16px;
+    right: 16px;
+    left: auto;
     display: flex;
     gap: 10px;
     z-index: 50;
