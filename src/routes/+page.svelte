@@ -1,31 +1,42 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { createPickerScroll } from "$lib/scroll/pickerScroll";
+  import { createWebGLScene } from "$lib/webgl/WebGLScene";
+  import { createMeshManager } from "$lib/webgl/MeshManager";
+  import { createScrollVelocity } from "$lib/utils/scrollVelocity";
+  import { createScrollEvents } from "$lib/utils/scrollEvents";
+  import { createInfiniteScroll } from "$lib/utils/infiniteScroll";
+  import { brands } from "$lib/config/scrollConfig";
 
   type Screen = "grid" | "scroll";
 
-  // --- Scroll screen (kept) ---
-  const picker = createPickerScroll({
-    items: [
-      "Dior",
-      "Renault",
-      "Biotherm",
-      "Diptyque",
-      "Chanel",
-      "Van Cleef",
-      "Beau Band",
-      "Cartier",
-      "Saint Laurent",
-      "Loewe",
-    ],
-    itemHeight: 112,
-    radius: 8,
-  });
-
-  const { scrollFrac, scrollBaseIndex, scrollStretch, scrollDir } = picker;
-
   let screen: Screen = "grid";
-  let scrollViewport: HTMLDivElement | null = null;
+
+  // --- Scroll screen (WebGL + DOM list) ---
+  let canvasElement: HTMLCanvasElement | null = null;
+  let scrollContainerElement: HTMLDivElement | null = null;
+  let listItems: HTMLLIElement[] = [];
+
+  function listItemRef(node: HTMLLIElement, index: number) {
+    listItems[index] = node;
+    return {
+      destroy() {
+        if (listItems[index] === node) listItems[index] = undefined as unknown as HTMLLIElement;
+      }
+    };
+  }
+
+  // WebGL scroll runtime handles (so we can start/stop when toggling screens)
+  let scrollInited = false;
+  let scrollRunning = false;
+  let scrollRaf: number | null = null;
+
+  let webglScene: ReturnType<typeof createWebGLScene> | null = null;
+  let meshManager: ReturnType<typeof createMeshManager> | null = null;
+  let scrollVelocity: ReturnType<typeof createScrollVelocity> | null = null;
+  let scrollEvents: ReturnType<typeof createScrollEvents> | null = null;
+  let infiniteScroll: ReturnType<typeof createInfiniteScroll> | null = null;
+
+  let scrollCleanup: (() => void) | null = null;
 
   // --- Infinite grid camera (repeating “page tiles”) ---
   let gridViewport: HTMLDivElement | null = null;
@@ -220,10 +231,165 @@
     if (typeof window === "undefined") return;
 
     if (screen === "scroll") {
-      window.addEventListener("wheel", picker.onWheel as any, { passive: false } as any);
-      picker.start();
+      startWebGLScroll();
     } else {
-      window.removeEventListener("wheel", picker.onWheel as any);
+      stopWebGLScroll();
+    }
+  }
+
+  function initWebGLScroll() {
+    if (scrollInited) return;
+    if (typeof window === "undefined") return;
+    if (!canvasElement || !scrollContainerElement) return;
+
+    // Initialize systems
+    webglScene = createWebGLScene(canvasElement);
+    meshManager = createMeshManager(webglScene.scene);
+    scrollVelocity = createScrollVelocity();
+    infiniteScroll = createInfiniteScroll();
+    scrollEvents = createScrollEvents(scrollContainerElement, scrollVelocity);
+
+    function initialize() {
+      if (!infiniteScroll || !meshManager) return;
+
+      // Calculate item height from first element
+      if (listItems[0]) {
+        const rect = listItems[0].getBoundingClientRect();
+        infiniteScroll.initialize(rect.height, brands.length);
+      }
+
+      // Create meshes and setup interactions
+      meshManager.createMeshes(brands, listItems);
+      meshManager.setupHoverHandlers(listItems);
+
+      // Attach scroll event listeners
+      scrollEvents?.attach();
+    }
+
+    // Wait for DOM to render
+    window.setTimeout(initialize, 0);
+
+    function updatePositions(scrollY: number, velocity: number) {
+      if (!infiniteScroll || !infiniteScroll.isReady || !meshManager) return;
+
+      const inf = infiniteScroll;
+      const mm = meshManager;
+
+      listItems.forEach((item, index) => {
+        if (!item) return;
+
+        const y = inf.calculateItemPosition(index, scrollY);
+        item.style.transform = `translate3d(0, ${y}px, 0)`;
+
+        const meshY = inf.calculateMeshY(y);
+        const alpha = inf.calculateAlpha(meshY);
+        mm.updateMesh(index, { x: 0, y: meshY }, velocity, alpha);
+      });
+    }
+
+    function animate() {
+      if (!scrollRunning) return;
+      scrollRaf = requestAnimationFrame(animate);
+
+      const sv = scrollVelocity?.update();
+      if (!sv || !infiniteScroll || !meshManager || !infiniteScroll.isReady) return;
+
+      const inf = infiniteScroll;
+      const mm = meshManager;
+
+      updatePositions(sv.scrollY, sv.velocity);
+      webglScene?.render();
+    }
+
+    function onResize() {
+      if (!webglScene || !meshManager || !infiniteScroll) return;
+
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      webglScene.resize(width, height);
+      meshManager.updateViewportSize(width, height);
+
+      // Recalculate and recreate
+      if (listItems[0]) {
+        const rect = listItems[0].getBoundingClientRect();
+        infiniteScroll.initialize(rect.height, brands.length);
+      }
+
+      meshManager.clear();
+      meshManager.createMeshes(brands, listItems);
+    }
+
+    window.addEventListener("resize", onResize, { passive: true } as any);
+
+    scrollCleanup = () => {
+      window.removeEventListener("resize", onResize as any);
+      scrollEvents?.detach();
+      meshManager?.dispose();
+      webglScene?.dispose();
+      meshManager = null;
+      webglScene = null;
+      scrollVelocity = null;
+      scrollEvents = null;
+      infiniteScroll = null;
+    };
+
+    scrollInited = true;
+
+    // Start immediately if we're on the scroll screen
+    scrollRunning = true;
+    animate();
+  }
+
+  function startWebGLScroll() {
+    if (typeof window === "undefined") return;
+    scrollRunning = true;
+
+    // If markup isn't mounted yet, defer init to next tick
+    if (!scrollInited) {
+      window.setTimeout(() => {
+        initWebGLScroll();
+      }, 0);
+      return;
+    }
+
+    // Resume animation loop
+    if (scrollRaf === null) {
+      const loop = () => {
+        if (!scrollRunning) {
+          scrollRaf = null;
+          return;
+        }
+
+        scrollRaf = requestAnimationFrame(loop);
+
+        const sv = scrollVelocity?.update();
+        if (!sv || !infiniteScroll || !meshManager || !infiniteScroll.isReady) return;
+
+        const inf = infiniteScroll;
+        const mm = meshManager;
+
+        listItems.forEach((item, index) => {
+          if (!item) return;
+          const y = inf.calculateItemPosition(index, sv.scrollY);
+          item.style.transform = `translate3d(0, ${y}px, 0)`;
+          const meshY = inf.calculateMeshY(y);
+          const alpha = inf.calculateAlpha(meshY);
+          mm.updateMesh(index, { x: 0, y: meshY }, sv.velocity, alpha);
+        });
+
+        webglScene?.render();
+      };
+
+      scrollRaf = requestAnimationFrame(loop);
+    }
+  }
+
+  function stopWebGLScroll() {
+    scrollRunning = false;
+    if (scrollRaf !== null) {
+      cancelAnimationFrame(scrollRaf);
+      scrollRaf = null;
     }
   }
 
@@ -480,15 +646,16 @@
     window.addEventListener("resize", readViewportSize);
 
     if (screen === "scroll") {
-      window.addEventListener("wheel", picker.onWheel as any, { passive: false } as any);
-      picker.start();
+      startWebGLScroll();
     }
   });
 
   onDestroy(() => {
     if (typeof window === "undefined") return;
 
-    window.removeEventListener("wheel", picker.onWheel as any);
+    stopWebGLScroll();
+    scrollCleanup?.();
+    scrollCleanup = null;
     window.removeEventListener("resize", readViewportSize);
 
     if (typeTimer) window.clearInterval(typeTimer);
@@ -542,6 +709,7 @@
                     {#if it.kind === "image"}
                       <figure
                         class="gridItem imageItem"
+                        class:hasCaption={Boolean(it.captionLeft || it.captionRight)}
                         style="grid-column: {it.col[0]} / {it.col[1]}; grid-row: {it.row[0]} / {it.row[1]};"
                       >
                         <img src={it.src} alt={it.id} draggable="false" decoding="async" />
@@ -577,30 +745,16 @@
       </div>
     </div>
   {:else}
-    <div class="scrollViewport" bind:this={scrollViewport}>
-      <div class="picker">
-        {#each picker.slots as slot (slot)}
-          <div
-            class="scrollItem pickerItem"
-            style="
-              top: calc(50% + {slot * picker.itemHeight - $scrollFrac}px);
-              opacity: {picker.labelOpacity(slot, $scrollFrac)};
-              transform: translateY(calc(-50% + {picker.edgePullPx(slot, $scrollFrac, $scrollStretch, $scrollDir)}px));
-            "
-          >
-            <div
-              class="pickerLabel"
-              style="
-                transform-origin: {$scrollDir > 0 ? '50% 0%' : '50% 100%'};
-                transform: translateY({$scrollDir * $scrollStretch * 14}px)
-                  scaleY({picker.labelScaleY(slot, $scrollFrac, $scrollStretch, $scrollDir)});
-              "
-            >
-              {picker.items[(((($scrollBaseIndex + slot) % picker.items.length) + picker.items.length) % picker.items.length)]}
-            </div>
-          </div>
+    <div bind:this={scrollContainerElement} class="scrollWebGL">
+      <canvas bind:this={canvasElement} class="scrollCanvas"></canvas>
+
+      <ul class="scrollList">
+        {#each brands as brand, i (brand)}
+          <li use:listItemRef={i} class="scrollListItem">
+            {brand}
+          </li>
         {/each}
-      </div>
+      </ul>
     </div>
   {/if}
 </div>
@@ -608,6 +762,34 @@
 <style>
   :global(body) {
     margin: 0;
+  }
+
+  /* Responsive layout tokens (3 MacBook presets) */
+  :global(:root) {
+    --block-h: 128px;          /* Air 13" default */
+    --block-gap: 16px;
+    --text-h: 16px;
+    --img-text-gap: 4px;       /* distance between image and caption text */
+  }
+
+  /* MacBook Pro 14" */
+  @media (min-width: 1500px) {
+    :global(:root) {
+      --block-h: 150px;
+      --block-gap: 16px;
+      --text-h: 16px;
+      --img-text-gap: 4px;
+    }
+  }
+
+  /* MacBook Pro 16" */
+  @media (min-width: 1700px) {
+    :global(:root) {
+      --block-h: 176px;
+      --block-gap: 16px;
+      --text-h: 20px;
+      --img-text-gap: 4px;
+    }
   }
 
   .container {
@@ -682,6 +864,7 @@
     position: absolute;
     box-sizing: border-box;
     background: #fff;
+    overflow: hidden; /* CRITICAL: prevents neighboring repeated tiles from overlapping visually */
   }
 
   .tileInner {
@@ -689,6 +872,7 @@
     inset: 0;
     padding: 28px;
     box-sizing: border-box;
+    overflow: hidden; /* clip to the padded layout area */
   }
 
   /* 12-column vertical lines overlay */
@@ -737,10 +921,11 @@
 
     display: grid;
     grid-template-columns: repeat(12, 1fr);
-    /* Use a fixed number of rows so items keep proportions at any height */
-    grid-template-rows: repeat(30, 1fr);
+    /* Block system: each row is a full block, gap is the distance between sections */
+    grid-auto-rows: var(--block-h);
     column-gap: 0;
-    row-gap: 0;
+    row-gap: var(--block-gap);
+    align-content: start;
 
     z-index: 1;
   }
@@ -748,9 +933,13 @@
   .gridItem {
     position: relative;
     box-sizing: border-box;
-    overflow: hidden; /* clip to column edges */
+    overflow: hidden;
     height: 100%;
     min-height: 0;
+    width: 100%;
+
+    /* Cell gutter: ensures items never touch across columns/rows */
+    padding: calc(var(--block-gap) / 2);
   }
 
   .imageItem {
@@ -759,31 +948,39 @@
   }
 
   figure.imageItem {
-    margin: 0;              /* remove default figure margins */
+    margin: 0;                 /* remove default figure margins */
     display: flex;
     flex-direction: column;
     align-self: stretch;
     justify-self: stretch;
+    height: 100%;
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    gap: var(--img-text-gap);  /* distance between image and caption */
   }
 
   figure.imageItem img {
-    flex: 1 1 auto;
-    min-height: 0;          /* IMPORTANT: allows image to shrink to make room for caption */
-  }
-
-  figure.imageItem figcaption {
-    flex: 0 0 auto;
-    margin: 0;
-    padding-top: 6px;
-  }
-
-  .imageItem img {
+    flex: 1 1 auto;            /* take remaining height */
+    min-height: 0;             /* critical for flex overflow */
     width: 100%;
-    height: 100%;
     object-fit: cover;
     display: block;
     border-radius: 0;
     filter: grayscale(1);
+  }
+
+  figure.imageItem.hasCaption figcaption {
+    flex: 0 0 auto;
+    height: var(--text-h);
+    line-height: var(--text-h);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .imageItem img {
+    height: 100%;
   }
 
   .imageItem figcaption {
@@ -794,19 +991,37 @@
     font-size: 11px;
     letter-spacing: 0.02em;
     color: rgba(0, 0, 0, 0.75);
+    height: var(--text-h);
+    line-height: var(--text-h);
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  /* Hide captions while dragging the infinite grid */
+  .gridViewport.dragging .imageItem figcaption {
+    opacity: 0;
+  }
+
+  .imageItem figcaption span {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .textItem {
     font-family: system-ui, -apple-system, sans-serif;
     font-size: 12px;
     color: rgba(0, 0, 0, 0.8);
-    line-height: 1.35;
+    line-height: 1.2;
+    max-width: 100%;
   }
 
   .metaSmall {
     font-family: system-ui, -apple-system, sans-serif;
     font-size: 12px;
     color: rgba(0, 0, 0, 0.8);
+    line-height: 1;
   }
 
   .rightNav {
@@ -866,67 +1081,49 @@
     50%, 100% { opacity: 0; }
   }
 
-  /* Picker scroll screen (unchanged) */
-  .scrollViewport {
+  /* Scroll screen (WebGL + DOM list) */
+  .scrollWebGL {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: #0b0b0b;
-    color: #fff;
+    background: #000;
     touch-action: none;
   }
 
-  .scrollViewport::before,
-  .scrollViewport::after {
-    content: "";
+  .scrollCanvas {
     position: absolute;
-    left: 0;
-    right: 0;
-    height: 28%;
-    z-index: 2;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
   }
 
-  .scrollViewport::before {
-    top: 0;
-    background: linear-gradient(to bottom, rgba(11, 11, 11, 1), rgba(11, 11, 11, 0));
-  }
-
-  .scrollViewport::after {
-    bottom: 0;
-    background: linear-gradient(to top, rgba(11, 11, 11, 1), rgba(11, 11, 11, 0));
-  }
-
-  .picker {
+  .scrollList {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    pointer-events: auto;
   }
 
-  .pickerItem {
+  .scrollListItem {
     position: absolute;
-    left: 8vw;
-    right: 8vw;
-    height: 112px;
-    display: flex;
-    align-items: center;
-    will-change: transform, opacity;
-  }
-
-  .scrollItem {
-    font: 700 clamp(44px, 7vw, 120px) / 0.95 system-ui, -apple-system, sans-serif;
-    letter-spacing: -0.03em;
-    user-select: none;
-    transform-origin: center;
-    will-change: transform, opacity;
-  }
-
-  .pickerLabel {
+    left: 0;
     width: 100%;
-    display: inline-block;
-    transform-origin: center;
-    will-change: transform;
-    backface-visibility: hidden;
+    cursor: pointer;
+    text-align: left;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0; /* MeshManager should drive opacity via alpha */
+    will-change: transform, opacity;
+    line-height: 1;
+    font-size: 160px;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .colLines, .colBoundary::before, .colBoundary::after {
     transform: translateZ(0);
