@@ -9,7 +9,9 @@
 
   type Screen = "grid" | "scroll";
 
-  let screen: Screen = "grid";
+let screen: Screen = "grid";
+
+const SHOW_COLUMN_GUIDES = true;
 
   // --- Scroll screen (WebGL + DOM list) ---
   let canvasElement: HTMLCanvasElement | null = null;
@@ -124,6 +126,8 @@
   }
 
   function onGridPointerDown(e: PointerEvent) {
+    // Prevent any native selection/drag behavior while initiating a drag
+    e.preventDefault();
     if (screen !== "grid") return;
 
     isPointerDown = true;
@@ -413,177 +417,149 @@
         align?: "left" | "right";
       };
 
-  // NOTE: gridItems positions are aligned to a 12-column grid and a 30-row baseline.
+  // NOTE: gridItems positions are aligned to a 12-column grid and a 12-row baseline.
   const gridItems: GridItem[] = [
-    // top left small photo (01)
+    // Row 1 (top)
     {
       kind: "image",
       id: "img-01",
       src: "https://picsum.photos/seed/renata-01/720/300",
-      col: [1, 3],
-      row: [1, 3],
+      col: [1, 2],
+      row: [1, 2],
       captionLeft: "01",
-      captionRight: "london, uk",
+      captionRight: "london, uk"
     },
 
-    // small meta under title (left)
-    {
-      kind: "text",
-      id: "meta-left",
-      col: [2, 5],
-      row: [3, 5],
-      html: `<div class="metaSmall">been in <b>19</b> countries in the past</div><div class="metaSmall">1.5 years, took 29 flights over the last year</div>`,
-      align: "left",
-    },
-
-    // top right wide photo (02)
     {
       kind: "image",
       id: "img-02",
       src: "https://picsum.photos/seed/renata-02/940/360",
-      col: [9, 12],
-      row: [1, 3],
+      col: [9, 11],
+      row: [1, 2],
       captionLeft: "02",
-      captionRight: "eastbourne, uk",
+      captionRight: "eastbourne, uk"
     },
 
-    // center wide photo under “traveller” (03)
+    // Row 3–4 cluster (matches Figma: one 2×2, one 2×1, several 1×1)
+    {
+      kind: "image",
+      id: "img-04",
+      src: "https://picsum.photos/seed/renata-04/1200/900",
+      col: [1, 3],
+      row: [3, 5],
+      captionLeft: "04",
+      captionRight: "étretat, france"
+    },
+
     {
       kind: "image",
       id: "img-03",
       src: "https://picsum.photos/seed/renata-03/980/420",
-      col: [6, 10],
-      row: [4, 6],
+      col: [6, 8],
+      row: [3, 4],
       captionLeft: "03",
-      captionRight: "funchal, madeira",
+      captionRight: "funchal, madeira"
     },
 
-    // middle right vertical (05)
     {
       kind: "image",
       id: "img-05",
       src: "https://picsum.photos/seed/renata-05/520/680",
-      col: [8, 10],
-      row: [7, 13],
+      col: [4, 5],
+      row: [3, 4],
       captionLeft: "05",
-      captionRight: "madeira",
+      captionRight: "madeira"
     },
 
-    // right mid small (07)
+    {
+      kind: "image",
+      id: "img-06",
+      src: "https://picsum.photos/seed/renata-06/1100/700",
+      col: [5, 7],
+      row: [5, 6],
+      captionLeft: "06",
+      captionRight: "gudauri, georgia"
+    },
+
     {
       kind: "image",
       id: "img-07",
       src: "https://picsum.photos/seed/renata-07/520/620",
       col: [12, 13],
-      row: [11, 15],
+      row: [5, 6],
       captionLeft: "07",
-      captionRight: "paris, france",
+      captionRight: "paris, france"
     },
 
-    // large left landscape (04)
-    {
-      kind: "image",
-      id: "img-04",
-      src: "https://picsum.photos/seed/renata-04/1200/900",
-      col: [1, 4],
-      row: [7, 16],
-      captionLeft: "04",
-      captionRight: "étretat, france",
-    },
-
-    // center mid landscape (06)
-    {
-      kind: "image",
-      id: "img-06",
-      src: "https://picsum.photos/seed/renata-06/1100/700",
-      col: [5, 8],
-      row: [12, 16],
-      captionLeft: "06",
-      captionRight: "gudauri, georgia",
-    },
-
-    // small left portrait (08)
+    // Mid-lower composition
     {
       kind: "image",
       id: "img-08",
       src: "https://picsum.photos/seed/renata-08/520/680",
       col: [3, 4],
-      row: [17, 21],
+      row: [7, 8],
       captionLeft: "08",
-      captionRight: "mallorca, spain",
+      captionRight: "mallorca, spain"
     },
 
-    // BIG bottom center portrait (10) – missing in previous layout
     {
       kind: "image",
       id: "img-10",
       src: "https://picsum.photos/seed/renata-10/900/1200",
       col: [6, 8],
-      row: [19, 28],
+      row: [7, 9],
       captionLeft: "10",
-      captionRight: "paris, france",
+      captionRight: "paris, france"
     },
 
-    // large bottom right (09)
     {
       kind: "image",
       id: "img-09",
       src: "https://picsum.photos/seed/renata-09/1400/900",
-      col: [10, 13],
-      row: [19, 28],
+      col: [9, 12],
+      row: [7, 9],
       captionLeft: "09",
-      captionRight: "edinburgh, uk",
+      captionRight: "edinburgh, uk"
     },
 
-    // bottom left tiny (11)
+    // Footer smalls
     {
       kind: "image",
       id: "img-11",
       src: "https://picsum.photos/seed/renata-11/420/420",
       col: [1, 2],
-      row: [27, 30],
+      row: [11, 12],
       captionLeft: "",
-      captionRight: "",
+      captionRight: ""
     },
 
-    // bottom right tiny (12)
     {
       kind: "image",
       id: "img-12",
       src: "https://picsum.photos/seed/renata-12/420/420",
       col: [9, 10],
-      row: [27, 30],
+      row: [11, 12],
       captionLeft: "",
-      captionRight: "",
+      captionRight: ""
     },
 
-    // right nav
-    {
-      kind: "text",
-      id: "right-nav",
-      col: [12, 13],
-      row: [1, 4],
-      html: `<div class="rightNav"><div>intro</div><div>visited</div><div>about</div></div>`,
-      align: "right",
-    },
-
-    // bottom meta
+    // Bottom meta
     {
       kind: "text",
       id: "time-left",
-      col: [1, 3],
-      row: [30, 31],
+      col: [1, 4],
+      row: [12, 13],
       html: `<div class="metaSmall">ldn, uk_16:05</div>`,
-      align: "left",
+      align: "left"
     },
     {
       kind: "text",
       id: "made-right",
-      col: [12, 13],
-      row: [30, 31],
+      col: [10, 13],
+      row: [12, 13],
       html: `<div class="metaSmall" style="text-align:right">made in 2025</div>`,
-      align: "right",
-    },
+      align: "right"
+    }
   ];
 
   // --- Animated title (center typing → becomes top-left logo) ---
@@ -635,8 +611,8 @@
     readViewportSize();
 
     // Start centered on the “home tile”
-    camX = vw / 2;
-    camY = vh / 2;
+    camX = 0;
+    camY = 0;
     camTargetX = camX;
     camTargetY = camY;
 
@@ -672,8 +648,20 @@
 
 <div class="container">
   <div class="topbar">
-    <button class:active={screen === "grid"} on:click={() => setScreen("grid")}>Grid</button>
-    <button class:active={screen === "scroll"} on:click={() => setScreen("scroll")}>Scroll</button>
+    {#if screen === "grid" && gridVisible}
+      <div class="menuButtons" aria-label="Primary navigation">
+        <button class="menuBtn" type="button">intro</button>
+        <button class="menuBtn" type="button">visited</button>
+        <button class="menuBtn" type="button">about</button>
+      </div>
+    {/if}
+
+    {#if gridVisible}
+      <div class="modeButtons" aria-label="Mode toggle">
+        <button class="modeBtn" class:active={screen === "grid"} on:click={() => setScreen("grid")} type="button">Grid</button>
+        <button class="modeBtn" class:active={screen === "scroll"} on:click={() => setScreen("scroll")} type="button">Scroll</button>
+      </div>
+    {/if}
   </div>
   {#if screen === "grid"}
     <div
@@ -685,6 +673,17 @@
       role="application"
       tabindex="0"
     >
+      {#if gridVisible}
+        <!-- Fixed overlay (does NOT move with dragging/camera) -->
+        <div class="fixedOverlay" aria-hidden="false">
+          <div class="fixedOverlayGrid">
+            <div class="fixedMeta" aria-label="travel stats">
+              <span class="fixedMetaLine fixedMetaLine--1">been in <b>19</b> countries in the past 1.5 years,</span>
+              <span class="fixedMetaLine fixedMetaLine--2">took 32 flights over the last year</span>
+            </div>
+          </div>
+        </div>
+      {/if}
       <div class="world" style="transform: translate3d({camX}px, {camY}px, 0);">
         {#each tileOffsets as ty (ty)}
           {#each tileOffsets as tx (tx)}
@@ -697,14 +696,10 @@
               aria-label={`tile-${ix}-${iy}`}
             >
               <div class="tileInner">
-                <!-- 12-column separators: 13 boundaries (including left+right edges) -->
-                <div class="colLines" aria-hidden="true">
-                  {#each Array(13) as _, i (i)}
-                    <div class="colBoundary" style="left: calc({i} * 100% / 12);" />
-                  {/each}
-                </div>
-
                 <div class="contentGrid">
+                  {#if SHOW_COLUMN_GUIDES}
+                    <div class="gridGuides" aria-hidden="true" />
+                  {/if}
                   {#each gridItems as it (it.id + '-' + ix + '-' + iy)}
                     {#if it.kind === "image"}
                       <figure
@@ -712,7 +707,9 @@
                         class:hasCaption={Boolean(it.captionLeft || it.captionRight)}
                         style="grid-column: {it.col[0]} / {it.col[1]}; grid-row: {it.row[0]} / {it.row[1]};"
                       >
-                        <img src={it.src} alt={it.id} draggable="false" decoding="async" />
+                        <div class="media" aria-hidden="true">
+                          <img src={it.src} alt={it.id} draggable="false" decoding="async" />
+                        </div>
                         {#if it.captionLeft || it.captionRight}
                           <figcaption>
                             <span class="capLeft">{it.captionLeft}</span>
@@ -764,31 +761,15 @@
     margin: 0;
   }
 
-  /* Responsive layout tokens (3 MacBook presets) */
+  /* Responsive layout tokens (simplified) */
   :global(:root) {
-    --block-h: 128px;          /* Air 13" default */
-    --block-gap: 16px;
     --text-h: 16px;
-    --img-text-gap: 4px;       /* distance between image and caption text */
-  }
-
-  /* MacBook Pro 14" */
-  @media (min-width: 1500px) {
-    :global(:root) {
-      --block-h: 150px;
-      --block-gap: 16px;
-      --text-h: 16px;
-      --img-text-gap: 4px;
-    }
   }
 
   /* MacBook Pro 16" */
   @media (min-width: 1700px) {
     :global(:root) {
-      --block-h: 176px;
-      --block-gap: 16px;
       --text-h: 20px;
-      --img-text-gap: 4px;
     }
   }
 
@@ -797,7 +778,8 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    background: #fff;
+    --page-bg: #fff;
+    background: var(--page-bg);
     color: #111;
   }
 
@@ -807,12 +789,30 @@
     right: 16px;
     left: auto;
     display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     gap: 10px;
     z-index: 50;
     mix-blend-mode: difference;
   }
 
-  .topbar button {
+  .menuButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+  }
+
+  .modeButtons {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .menuBtn,
+  .modeBtn {
     appearance: none;
     border: 1px solid rgba(0, 0, 0, 0.12);
     background: rgba(255, 255, 255, 0.65);
@@ -823,9 +823,10 @@
     font-size: 13px;
     cursor: pointer;
     backdrop-filter: blur(10px);
+    text-transform: lowercase;
   }
 
-  .topbar button.active {
+  .modeBtn.active {
     background: rgba(0, 0, 0, 0.9);
     color: #fff;
     border-color: rgba(0, 0, 0, 0.18);
@@ -840,6 +841,22 @@
     cursor: grab;
     touch-action: none;
     isolation: isolate;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Hard-disable selection/dragging across the entire app surface */
+  .container,
+  .container * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Prevent images from becoming draggable/ghost-dragged */
+  img {
+    -webkit-user-drag: none;
+    user-drag: none;
   }
 
   .gridViewport.dragging {
@@ -870,76 +887,170 @@
   .tileInner {
     position: absolute;
     inset: 0;
-    padding: 28px;
+    padding: 16px;
     box-sizing: border-box;
-    overflow: hidden; /* clip to the padded layout area */
+
+    /* Keep `.pageTile { overflow: hidden; }` so tiles don't bleed into each other,
+       but DO NOT clip inside the tile, otherwise expansion into column/row gutters
+       is cut off on the right/bottom and looks like it only grows up/left. */
+    overflow: visible;
   }
 
-  /* 12-column vertical lines overlay */
-  .colLines {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 10; /* ALWAYS above items so column edges read and items appear clipped */
-    overflow: hidden;
-  }
-
-  .colBoundary {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 4px; /* space for 2 lines + 2px gap */
-    transform: translateX(-2px); /* center boundary at exact column edge */
-  }
-
-  .colBoundary::before,
-  .colBoundary::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: rgba(0, 0, 0, 0.06);
-  }
-
-  .colBoundary::before {
-    left: 0;
-  }
-
-  .colBoundary::after {
-    left: 3px; /* 2px gap between the two 1px lines */
-  }
 
 
   /* Content grid */
   .contentGrid {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 0;
+    position: relative;
+    width: 100%;
+    height: 100%;
 
+    /* Figma grid: 12 columns, 12 rows, 16px gutter, 16px frame padding */
     display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    /* Block system: each row is a full block, gap is the distance between sections */
-    grid-auto-rows: var(--block-h);
-    column-gap: 0;
-    row-gap: var(--block-gap);
-    align-content: start;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(12, minmax(0, 1fr));
+    column-gap: 16px;
+    row-gap: 16px;
+    align-content: stretch;
 
     z-index: 1;
+
+    --gutter: 16px;
+    --half-gutter: 8px;
+    --guide-line: rgba(0, 0, 0, 0.35);
+    --colW: calc((100% - (11 * var(--gutter))) / 12);
+    --rowH: calc((100% - (11 * var(--gutter))) / 12);
+  }
+
+  /* Fixed overlay aligned to the same 12×12 grid (does not move with camera) */
+  .fixedOverlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 40; /* above grid items and guides */
+
+    opacity: 0;
+    transition: opacity 220ms ease;
+  }
+
+  .gridViewport.ready .fixedOverlay {
+    opacity: 1;
+  }
+
+  .fixedOverlayGrid {
+    position: absolute;
+    inset: 16px; /* same as .tileInner padding */
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(12, minmax(0, 1fr));
+    column-gap: 16px;
+    row-gap: 16px;
+  }
+
+  /* Place the meta text in the same cell area you used before: col 7-12, row 2-3 */
+  .fixedMeta {
+    grid-column: 7 / 12;
+    grid-row: 2 / 3;
+
+    font-family: "Satoshi", system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    line-height: 16px;
+    font-weight: 500;
+    font-style: normal;
+    color: #000;
+
+    /* prevent selection */
+    user-select: none;
+    -webkit-user-select: none;
+
+    /* two separate lines exactly like in Figma */
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .fixedMetaLine {
+    display: inline-block;
+    /* safe padding around each line */
+    padding: 2px 6px;
+    background: var(--page-bg);
+    /* keep each line on its own */
+    white-space: nowrap;
+  }
+
+  /* Figma: the first line starts further to the right than the second line */
+  .fixedMetaLine--1 {
+    margin-left: 120px;
+  }
+
+  .fixedMetaLine--2 {
+    margin-left: 0;
+  }
+
+  /* Grid guides overlay: 12 columns + 12 rows, 16px gutters, two thin lines at gutter edges */
+  .gridGuides {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 6;
+    mix-blend-mode: multiply;
+
+    /*
+      We draw guides at the actual gutter edges: two 1px lines per gutter, at left/right and top/bottom edges.
+      Pattern size for each track = track + gutter.
+    */
+    background-image:
+      /* vertical line at right edge of each column */
+      repeating-linear-gradient(
+        to right,
+        transparent 0,
+        transparent calc(var(--colW) - 1px),
+        var(--guide-line) calc(var(--colW) - 1px),
+        var(--guide-line) var(--colW),
+        transparent var(--colW),
+        transparent calc(var(--colW) + var(--gutter))
+      ),
+      /* vertical line at left edge of each next column (i.e., right edge + gutter) */
+      repeating-linear-gradient(
+        to right,
+        transparent 0,
+        transparent calc(var(--colW) + var(--gutter) - 1px),
+        var(--guide-line) calc(var(--colW) + var(--gutter) - 1px),
+        var(--guide-line) calc(var(--colW) + var(--gutter)),
+        transparent calc(var(--colW) + var(--gutter)),
+        transparent calc(var(--colW) + var(--gutter))
+      ),
+      /* horizontal line at bottom edge of each row */
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(var(--rowH) - 1px),
+        var(--guide-line) calc(var(--rowH) - 1px),
+        var(--guide-line) var(--rowH),
+        transparent var(--rowH),
+        transparent calc(var(--rowH) + var(--gutter))
+      ),
+      /* horizontal line at top edge of each next row (i.e., bottom edge + gutter) */
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(var(--rowH) + var(--gutter) - 1px),
+        var(--guide-line) calc(var(--rowH) + var(--gutter) - 1px),
+        var(--guide-line) calc(var(--rowH) + var(--gutter)),
+        transparent calc(var(--rowH) + var(--gutter)),
+        transparent calc(var(--rowH) + var(--gutter))
+      );
   }
 
   .gridItem {
     position: relative;
+    z-index: 2;
     box-sizing: border-box;
-    overflow: hidden;
+    overflow: visible;
     height: 100%;
     min-height: 0;
     width: 100%;
-
-    /* Cell gutter: ensures items never touch across columns/rows */
-    padding: calc(var(--block-gap) / 2);
+    padding: 0;
   }
 
   .imageItem {
@@ -957,17 +1068,53 @@
     min-height: 0;
     width: 100%;
     max-width: 100%;
-    gap: var(--img-text-gap);  /* distance between image and caption */
+    gap: 4px;
   }
 
-  figure.imageItem img {
-    flex: 1 1 auto;            /* take remaining height */
-    min-height: 0;             /* critical for flex overflow */
+  /* Media wrapper: keeps layout size, lets the image animate beyond its box */
+  figure.imageItem .media {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
+    overflow: visible;
+  }
+
+  /* Image fills media box; animate inset/scale to overlap gutters while dragging */
+  figure.imageItem .media img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
     display: block;
     border-radius: 0;
     filter: grayscale(1);
+
+    will-change: transform, top, left, width, height;
+    transition:
+      top 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      left 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    transform: scale(1);
+  }
+
+  /* While dragging: overlap the FULL 16px gutters on every side */
+  .gridViewport.dragging figure.imageItem .media img {
+    /* Expand by the FULL gutter on ALL sides (16px) */
+    top: calc(-1 * var(--gutter));
+    left: calc(-1 * var(--gutter));
+    width: calc(100% + (2 * var(--gutter)));
+    height: calc(100% + (2 * var(--gutter)));
+    transform: scale(1);
+  }
+
+  figure.imageItem img {
+    /* handled by .media img */
   }
 
   figure.imageItem.hasCaption figcaption {
@@ -1002,6 +1149,18 @@
   /* Hide captions while dragging the infinite grid */
   .gridViewport.dragging .imageItem figcaption {
     opacity: 0;
+  }
+
+  /* While dragging, remove the caption's layout space so the image can fill to the row boundary */
+  .gridViewport.dragging figure.imageItem {
+    gap: 0;
+  }
+
+  .gridViewport.dragging figure.imageItem figcaption {
+    height: 0;
+    line-height: 0;
+    margin: 0;
+    padding: 0;
   }
 
   .imageItem figcaption span {
@@ -1125,8 +1284,10 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .colLines, .colBoundary::before, .colBoundary::after {
-    transform: translateZ(0);
+   /* Make sure the expanded media is not hidden under other items or guides */
+  .gridViewport.dragging figure.imageItem {
+    z-index: 20;
   }
 </style>
   
+ 
