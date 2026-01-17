@@ -19,12 +19,13 @@ export function createTextTexture(text: string, domElement: HTMLElement): THREE.
 
 	// High-res canvas for crisp text rendering
 	const scale = 4;
+	const extraY = 14; // extra space to avoid clipping descenders
 	canvas.width = domElement.offsetWidth * scale;
-	canvas.height = domElement.offsetHeight * scale;
+	canvas.height = (domElement.offsetHeight + extraY) * scale;
 
 	ctx.scale(scale, scale);
 	// Transparent background; clear in unscaled (CSS-pixel) coordinates
-	ctx.clearRect(0, 0, domElement.offsetWidth, domElement.offsetHeight);
+	ctx.clearRect(0, 0, domElement.offsetWidth, domElement.offsetHeight + extraY);
 	ctx.fillStyle = '#000';
 	ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
 	ctx.textAlign = 'left';
@@ -35,7 +36,7 @@ export function createTextTexture(text: string, domElement: HTMLElement): THREE.
 		ctx.letterSpacing = letterSpacing;
 	}
 
-	ctx.fillText(text, 0, domElement.offsetHeight / 2);
+	ctx.fillText(text, 0, domElement.offsetHeight / 2 + 4);
 
 	const texture = new THREE.CanvasTexture(canvas);
 	texture.minFilter = THREE.LinearFilter;

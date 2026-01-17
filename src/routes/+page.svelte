@@ -421,16 +421,46 @@ function readViewportSize() {
     return iy * baseTileH();
   }
 
-  function setScreen(next: Screen) {
-    screen = next;
-    if (typeof window === "undefined") return;
+function setScreen(next: Screen) {
+  // If we are leaving the scroll screen, fully tear down WebGL so it can re-bind
+  // to the newly mounted DOM nodes when we come back.
+  const wasScroll = screen === "scroll";
 
-    if (screen === "scroll") {
-      startWebGLScroll();
-    } else {
-      stopWebGLScroll();
-    }
+  screen = next;
+  if (typeof window === "undefined") return;
+
+  if (wasScroll && next !== "scroll") {
+    stopWebGLScroll();
+    scrollCleanup?.();
+    scrollCleanup = null;
+
+    // Reset init state so the next visit re-initializes with fresh bind:this nodes
+    scrollInited = false;
+    scrollRunning = false;
+    scrollRaf = null;
+
+    webglScene = null;
+    meshManager = null;
+    scrollVelocity = null;
+    scrollEvents = null;
+    infiniteScroll = null;
+
+    canvasElement = null;
+    scrollContainerElement = null;
+    listItems = [];
+
+    // Reset hover state
+    hoveredVisited = null;
+    hoveredVisitedIndex = null;
   }
+
+  if (screen === "scroll") {
+    // Defer one tick so bind:this refs are populated before init
+    window.setTimeout(() => startWebGLScroll(), 0);
+  } else {
+    stopWebGLScroll();
+  }
+}
 
   function initWebGLScroll() {
     if (scrollInited) return;
@@ -1575,7 +1605,7 @@ function readViewportSize() {
     font-family: system-ui, -apple-system, sans-serif;
     font-weight: 900;
     letter-spacing: -0.02em;
-    line-height: 0.9;
+    line-height: 0.91;
     font-size: clamp(52px, 6.8vw, 110px);
     text-transform: lowercase;
 
