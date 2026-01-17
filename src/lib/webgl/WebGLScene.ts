@@ -26,7 +26,9 @@ export function createWebGLScene(canvas: HTMLCanvasElement) {
 	});
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-	renderer.setClearColor(0x000000, 1);
+	renderer.autoClear = true;
+
+	renderer.setClearColor(0x000000, 0);
 
 	return {
 		scene,
@@ -36,6 +38,8 @@ export function createWebGLScene(canvas: HTMLCanvasElement) {
 		 * Render the scene
 		 */
 		render() {
+			// Clear color, depth, and stencil buffers every frame to avoid ghosting
+			renderer.clear(true, true, true);
 			renderer.render(scene, camera);
 		},
 

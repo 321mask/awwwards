@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { vertexShader, fragmentShader } from '$lib/shaders/velocityStretch';
 import { createTextTexture } from '$lib/utils/textureCreator';
-import { scrollConfig } from '$lib/config/scrollConfig';
 
 /**
  * Creates a mesh manager for handling WebGL meshes
  */
 export function createMeshManager(scene: THREE.Scene) {
 	let meshes: THREE.Mesh[] = [];
+
+	const baseColor = new THREE.Color(0, 0, 0); // default WebGL text color (black)
 
 	return {
 		/**
@@ -33,13 +34,7 @@ export function createMeshManager(scene: THREE.Scene) {
 						uScaleX: { value: 1.0 },
 						uScaleY: { value: 1.0 },
 						uAlpha: { value: 1.0 },
-						uColor: {
-							value: new THREE.Color(
-								scrollConfig.hoverColor.r,
-								scrollConfig.hoverColor.g,
-								scrollConfig.hoverColor.b
-							)
-						},
+						uColor: { value: baseColor.clone() },
 						uHover: { value: 0.0 }
 					},
 					transparent: true,
@@ -53,27 +48,32 @@ export function createMeshManager(scene: THREE.Scene) {
 			});
 		},
 
+		setHover(index: number, isHover: boolean) {
+			const mesh = meshes[index];
+			if (!mesh) return;
+			const material = mesh.material as THREE.ShaderMaterial;
+			material.uniforms.uHover.value = isHover ? 1.0 : 0.0;
+		},
+
 		/**
-		 * Setup hover interactions for meshes
+		 * Setup hover interactions for meshes (optional; you can also call setHover from Svelte)
 		 */
 		setupHoverHandlers(domElements: HTMLElement[]) {
 			domElements.forEach((element, index) => {
 				element.addEventListener('mouseenter', () => {
-					const mesh = meshes[index];
-					if (mesh) {
-						const material = mesh.material as THREE.ShaderMaterial;
-						material.uniforms.uHover.value = 1.0;
-					}
+					this.setHover(index, true);
 				});
 
 				element.addEventListener('mouseleave', () => {
-					const mesh = meshes[index];
-					if (mesh) {
-						const material = mesh.material as THREE.ShaderMaterial;
-						material.uniforms.uHover.value = 0.0;
-					}
+					this.setHover(index, false);
 				});
 			});
+		},
+
+		getMeshXFromDom(domElement: HTMLElement) {
+			const rect = domElement.getBoundingClientRect();
+			// Use rect.right so right-aligned DOM (right:16px) produces the same alignment in WebGL
+			return rect.right - rect.width / 2 - window.innerWidth / 2;
 		},
 
 		/**
@@ -81,13 +81,14 @@ export function createMeshManager(scene: THREE.Scene) {
 		 */
 		updateMesh(index: number, position: { x: number; y: number }, velocity: number, alpha: number) {
 			const mesh = meshes[index];
-			if (mesh) {
-				mesh.position.y = position.y;
+			if (!mesh) return;
 
-				const material = mesh.material as THREE.ShaderMaterial;
-				material.uniforms.uVelocity.value = velocity;
-				material.uniforms.uAlpha.value = alpha;
-			}
+			mesh.position.x = position.x;
+			mesh.position.y = position.y;
+
+			const material = mesh.material as THREE.ShaderMaterial;
+			material.uniforms.uVelocity.value = velocity;
+			material.uniforms.uAlpha.value = alpha;
 		},
 
 		/**

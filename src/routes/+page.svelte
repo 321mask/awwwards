@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { fade } from "svelte/transition";
   import { createWebGLScene } from "$lib/webgl/WebGLScene";
   import { createMeshManager } from "$lib/webgl/MeshManager";
   import { createScrollVelocity } from "$lib/utils/scrollVelocity";
   import { createScrollEvents } from "$lib/utils/scrollEvents";
   import { createInfiniteScroll } from "$lib/utils/infiniteScroll";
-  import { brands } from "$lib/config/scrollConfig";
+
+
 
   type Screen = "grid" | "scroll";
 
@@ -65,6 +67,113 @@ function baseTileH() {
   let infiniteScroll: ReturnType<typeof createInfiniteScroll> | null = null;
 
   let scrollCleanup: (() => void) | null = null;
+
+  // --- Visited screen hover state (reuses the current scroll list) ---
+  type VisitedMeta = {
+    capital: string;
+    image: string;
+  };
+
+  const visitedMeta: Record<string, VisitedMeta> = {
+    portugal: { capital: "lisbon", image: "https://picsum.photos/seed/portugal/900/1200" },
+    england: { capital: "london", image: "https://picsum.photos/seed/england/900/1200" },
+    scotland: { capital: "edinburgh", image: "https://picsum.photos/seed/scotland/900/1200" },
+    sweden: { capital: "stockholm", image: "https://picsum.photos/seed/sweden/900/1200" },
+    belgium: { capital: "brussels", image: "https://picsum.photos/seed/belgium/900/1200" },
+    switzerland: { capital: "bern", image: "https://picsum.photos/seed/switzerland/900/1200" },
+    hungary: { capital: "budapest", image: "https://picsum.photos/seed/hungary/900/1200" },
+    armenia: { capital: "yerevan", image: "https://picsum.photos/seed/armenia/900/1200" },
+    georgia: { capital: "tbilisi", image: "https://picsum.photos/seed/georgia/900/1200" },
+    austria: { capital: "vienna", image: "https://picsum.photos/seed/austria/900/1200" },
+    poland: { capital: "warsaw", image: "https://picsum.photos/seed/poland/900/1200" }
+  };
+
+  // Country list for visited screen scroll
+  const visitedCountries = [
+    "portugal",
+    "england",
+    "scotland",
+    "sweden",
+    "belgium",
+    "switzerland",
+    "hungary",
+    "armenia",
+    "georgia",
+    "austria",
+    "poland"
+  ];
+
+  let hoveredVisited: string | null = null;
+
+  let hoveredVisitedIndex: number | null = null;
+
+function setWebGLHover(nextIndex: number | null) {
+  if (!meshManager) return;
+
+  // clear previous
+  if (hoveredVisitedIndex !== null && hoveredVisitedIndex !== nextIndex) {
+    meshManager.setHover(hoveredVisitedIndex, false);
+  }
+
+  // set new
+  if (nextIndex !== null) {
+    meshManager.setHover(nextIndex, true);
+  }
+
+  hoveredVisitedIndex = nextIndex;
+}
+
+function clearWebGLHover() {
+  if (!meshManager) return;
+  if (hoveredVisitedIndex !== null) {
+    meshManager.setHover(hoveredVisitedIndex, false);
+  }
+  hoveredVisitedIndex = null;
+}
+
+// Helper to dim non-hovered WebGL meshes by lowering alpha
+function hoverAlphaMultiplier(index: number) {
+  return hoveredVisitedIndex !== null && index !== hoveredVisitedIndex ? 0.28 : 1;
+}
+
+  function normalizeKey(s: string) {
+    return String(s).trim().toLowerCase();
+  }
+
+  function getVisitedMeta(country: string) {
+    const key = normalizeKey(country);
+    return visitedMeta[key] ?? { capital: "—", image: `https://picsum.photos/seed/${encodeURIComponent(key)}/900/1200` };
+  }
+
+  function hashString(str: string) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function pad2(n: number) {
+    return String(n).padStart(2, "0");
+  }
+
+  function formatDMY(d: Date) {
+    return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
+  }
+
+  function getRandomDates(key: string) {
+    // Deterministic "random" dates per item for now
+    const h = hashString(normalizeKey(key));
+    const year = 2024;
+    const month = h % 10; // 0..9
+    const day = 1 + ((h >>> 8) % 20); // 1..20
+    const len = 3 + ((h >>> 16) % 10); // 3..12
+
+    const start = new Date(year, month, day);
+    const end = new Date(year, month, day + len);
+    return { start: formatDMY(start), end: formatDMY(end) };
+  }
 
   // --- Infinite grid camera (repeating “page tiles”) ---
   let gridViewport: HTMLDivElement | null = null;
@@ -341,12 +450,12 @@ function readViewportSize() {
       // Calculate item height from first element
       if (listItems[0]) {
         const rect = listItems[0].getBoundingClientRect();
-        infiniteScroll.initialize(rect.height, brands.length);
+        infiniteScroll.initialize(rect.height, visitedCountries.length);
       }
 
       // Create meshes and setup interactions
-      meshManager.createMeshes(brands, listItems);
-      meshManager.setupHoverHandlers(listItems);
+      meshManager.createMeshes(visitedCountries, listItems);
+      // Hover is handled by Svelte events for the visited UI
 
       // Attach scroll event listeners
       scrollEvents?.attach();
@@ -361,16 +470,18 @@ function readViewportSize() {
       const inf = infiniteScroll;
       const mm = meshManager;
 
-      listItems.forEach((item, index) => {
-        if (!item) return;
+      for (let index = 0; index < visitedCountries.length; index++) {
+        const item = listItems[index];
+        if (!item) continue;
 
         const y = inf.calculateItemPosition(index, scrollY);
         item.style.transform = `translate3d(0, ${y}px, 0)`;
 
         const meshY = inf.calculateMeshY(y);
-        const alpha = inf.calculateAlpha(meshY);
-        mm.updateMesh(index, { x: 0, y: meshY }, velocity, alpha);
-      });
+        const alpha = inf.calculateAlpha(meshY) * hoverAlphaMultiplier(index);
+        const meshX = meshManager.getMeshXFromDom(item);
+        mm.updateMesh(index, { x: meshX, y: meshY }, velocity, alpha);
+      }
     }
 
     function animate() {
@@ -399,11 +510,11 @@ function readViewportSize() {
       // Recalculate and recreate
       if (listItems[0]) {
         const rect = listItems[0].getBoundingClientRect();
-        infiniteScroll.initialize(rect.height, brands.length);
+        infiniteScroll.initialize(rect.height, visitedCountries.length);
       }
 
       meshManager.clear();
-      meshManager.createMeshes(brands, listItems);
+      meshManager.createMeshes(visitedCountries, listItems);
     }
 
     window.addEventListener("resize", onResize, { passive: true } as any);
@@ -455,14 +566,16 @@ function readViewportSize() {
         const inf = infiniteScroll;
         const mm = meshManager;
 
-        listItems.forEach((item, index) => {
-          if (!item) return;
+        for (let index = 0; index < visitedCountries.length; index++) {
+          const item = listItems[index];
+          if (!item) continue;
           const y = inf.calculateItemPosition(index, sv.scrollY);
           item.style.transform = `translate3d(0, ${y}px, 0)`;
           const meshY = inf.calculateMeshY(y);
-          const alpha = inf.calculateAlpha(meshY);
-          mm.updateMesh(index, { x: 0, y: meshY }, sv.velocity, alpha);
-        });
+          const alpha = inf.calculateAlpha(meshY) * hoverAlphaMultiplier(index);
+          const meshX = meshManager.getMeshXFromDom(item);
+          mm.updateMesh(index, { x: meshX, y: meshY }, sv.velocity, alpha);
+        }
 
         webglScene?.render();
       };
@@ -733,20 +846,13 @@ function readViewportSize() {
   on:pointercancel={onGridPointerUp}
 />
 
-<div class="container">
+<div class="container" class:isGrid={screen === "grid"}>
   <div class="topbar">
-    {#if screen === "grid" && gridVisible}
-      <div class="menuButtons" aria-label="Primary navigation">
-        <button class="menuBtn" type="button">intro</button>
-        <button class="menuBtn" type="button">visited</button>
-        <button class="menuBtn" type="button">about</button>
-      </div>
-    {/if}
-
     {#if gridVisible}
-      <div class="modeButtons" aria-label="Mode toggle">
-        <button class="modeBtn" class:active={screen === "grid"} on:click={() => setScreen("grid")} type="button">Grid</button>
-        <button class="modeBtn" class:active={screen === "scroll"} on:click={() => setScreen("scroll")} type="button">Scroll</button>
+      <div class="menuButtons" aria-label="Primary navigation">
+        <button class="menuBtn" class:active={screen === "grid"} on:click={() => setScreen("grid")} type="button">intro</button>
+        <button class="modeBtn" class:active={screen === "scroll"} on:click={() => setScreen("scroll")} type="button">visited</button>
+        <button class="menuBtn" type="button">about</button>
       </div>
     {/if}
   </div>
@@ -829,16 +935,51 @@ function readViewportSize() {
       </div>
     </div>
   {:else}
-    <div bind:this={scrollContainerElement} class="scrollWebGL">
+    <div bind:this={scrollContainerElement} class="scrollWebGL visitedLayout">
       <canvas bind:this={canvasElement} class="scrollCanvas"></canvas>
 
-      <ul class="scrollList">
-        {#each brands as brand, i (brand)}
-          <li use:listItemRef={i} class="scrollListItem">
-            {brand}
-          </li>
-        {/each}
-      </ul>
+      <div class="visitedLeft" aria-label="visited details">
+        {#if hoveredVisited}
+          {@const m = getVisitedMeta(hoveredVisited)}
+          {@const dates = getRandomDates(hoveredVisited)}
+
+          <div class="visitedMeta" in:fade={{ duration: 180 }} out:fade={{ duration: 160 }}>
+            <div class="metaRow"><span class="metaKey">city</span><span class="metaVal">{m.capital}</span></div>
+            <div class="metaRow"><span class="metaKey">start date</span><span class="metaVal">{dates.start}</span></div>
+            <div class="metaRow"><span class="metaKey">end date</span><span class="metaVal">{dates.end}</span></div>
+          </div>
+
+          {#key hoveredVisited}
+            <div class="visitedImage" in:fade={{ duration: 220 }} out:fade={{ duration: 180 }}>
+              <img src={m.image} alt={hoveredVisited} decoding="async" draggable="false" />
+            </div>
+          {/key}
+        {/if}
+      </div>
+
+      <div class="visitedRight" aria-label="visited list">
+        <ul class="scrollList">
+          {#each visitedCountries as brand, i (brand)}
+            <li
+              use:listItemRef={i}
+              class="scrollListItem"
+              class:isActive={hoveredVisited === brand}
+              class:isDimmed={Boolean(hoveredVisited) && hoveredVisited !== brand}
+              on:mouseenter={() => {
+                hoveredVisited = brand;
+                setWebGLHover(i);
+              }}
+              on:mouseleave={() => {
+                hoveredVisited = null;
+                clearWebGLHover();
+              }}
+            >
+              {brand}
+            </li>
+          {/each}
+        </ul>
+        <div class="madeIn">made in 2025</div>
+      </div>
     </div>
   {/if}
 </div>
@@ -880,6 +1021,9 @@ function readViewportSize() {
     align-items: flex-end;
     gap: 10px;
     z-index: 50;
+  }
+
+  .container.isGrid .topbar {
     mix-blend-mode: difference;
   }
 
@@ -890,13 +1034,6 @@ function readViewportSize() {
     align-items: flex-end;
   }
 
-  .modeButtons {
-    display: flex;
-    flex-direction: row;
-    gap: 10px;
-    align-items: center;
-    justify-content: flex-end;
-  }
 
   .menuBtn,
   .modeBtn {
@@ -913,6 +1050,7 @@ function readViewportSize() {
     text-transform: lowercase;
   }
 
+  .menuBtn.active,
   .modeBtn.active {
     background: rgba(0, 0, 0, 0.9);
     color: #fff;
@@ -1329,13 +1467,15 @@ function readViewportSize() {
     50%, 100% { opacity: 0; }
   }
 
-  /* Scroll screen (WebGL + DOM list) */
-  .scrollWebGL {
+  /* Visited screen (reuses existing scroll list + WebGL canvas) */
+  .scrollWebGL.visitedLayout {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: #000;
+    background: #fff;
     touch-action: none;
+    display: flex;
+    isolation: isolate;
   }
 
   .scrollCanvas {
@@ -1344,11 +1484,80 @@ function readViewportSize() {
     width: 100%;
     height: 100%;
     pointer-events: none;
+    z-index: 1;
+    opacity: 1; /* keep WebGL running, but hide its visuals to match the mock */
+  }
+
+  .visitedLeft {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 44vw;
+    min-width: 420px;
+    padding: 16px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .visitedMeta {
+    width: 100%;
+    max-width: 520px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.85);
+  }
+
+  .metaRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 10px 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .metaRow:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .metaKey,
+  .metaVal {
+    text-transform: lowercase;
+  }
+
+  .visitedImage {
+    width: 100%;
+    max-width: 520px;
+    aspect-ratio: 3 / 4;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  .visitedImage img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: none;
+  }
+
+  .visitedRight {
+    position: relative;
+    z-index: 2;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 16px;
+    box-sizing: border-box;
   }
 
   .scrollList {
     position: absolute;
     inset: 0;
+    z-index: 3;
     list-style: none;
     padding: 0;
     margin: 0;
@@ -1357,21 +1566,82 @@ function readViewportSize() {
 
   .scrollListItem {
     position: absolute;
-    left: 0;
-    width: 100%;
-    cursor: pointer;
+    top: 0;
+    right: 16px;
+    width: max-content;
+    cursor: default;
+
     text-align: left;
     font-family: system-ui, -apple-system, sans-serif;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    opacity: 0; /* MeshManager should drive opacity via alpha */
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 0.9;
+    font-size: clamp(52px, 6.8vw, 110px);
+    text-transform: lowercase;
+
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+    -webkit-text-stroke: 0 transparent;
+    mix-blend-mode: normal;
+    opacity: 1;
     will-change: transform, opacity;
-    line-height: 1;
-    font-size: 160px;
-    color: #fff;
+
     user-select: none;
     -webkit-user-select: none;
+
+    transition: color 220ms ease;
+  }
+
+  /* grey-out everything except the hovered item */
+  .scrollListItem.isDimmed {
+    color: rgba(0, 0, 0, 0.28);
+  }
+
+  /* animated cross line */
+  .scrollListItem::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 52%;
+    height: 0.085em;
+    background: #000;
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    pointer-events: none;
+  }
+
+  .scrollListItem.isActive::after {
+    transform: scaleX(1);
+  }
+
+  .madeIn {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.75);
+    text-transform: lowercase;
+  }
+
+  @media (max-width: 980px) {
+    .scrollWebGL.visitedLayout {
+      flex-direction: column;
+    }
+    .visitedLeft {
+      flex: 0 0 auto;
+      min-width: 0;
+      width: 100%;
+    }
+    .visitedRight {
+      justify-content: flex-start;
+    }
+    .scrollList {
+      right: 16px;
+    }
   }
    /* Make sure the expanded media is not hidden under other items or guides */
   .gridViewport.dragging figure.imageItem {
