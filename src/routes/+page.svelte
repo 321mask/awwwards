@@ -9,9 +9,32 @@
 
 
 
-  type Screen = "grid" | "scroll";
+  type Screen = "grid" | "scroll" | "country";
 
 let screen: Screen = "grid";
+let selectedCountry: string | null = null;
+let selectedCountryVariant: "edinburgh" | "palma" = "edinburgh";
+let countryScroller: HTMLDivElement | null = null;
+  function pickCountryVariant(country: string): "edinburgh" | "palma" {
+    return (hashString(normalizeKey(country)) % 2) === 0 ? "edinburgh" : "palma";
+  }
+
+  function openCountry(country: string) {
+    selectedCountry = country;
+    selectedCountryVariant = pickCountryVariant(country);
+    setScreen("country");
+
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        countryScroller?.scrollTo({ left: 0, top: 0, behavior: "auto" });
+      }, 0);
+    }
+  }
+
+  function closeCountry() {
+    selectedCountry = null;
+    setScreen("scroll");
+  }
 
 
 const SHOW_COLUMN_GUIDES = true;
@@ -878,7 +901,7 @@ function setScreen(next: Screen) {
 
 <div class="container" class:isGrid={screen === "grid"}>
   <div class="topbar">
-    {#if gridVisible}
+    {#if gridVisible && screen !== "country"}
       <div class="menuButtons" aria-label="Primary navigation">
         <button class="menuBtn" class:active={screen === "grid"} on:click={() => setScreen("grid")} type="button">intro</button>
         <button class="modeBtn" class:active={screen === "scroll"} on:click={() => setScreen("scroll")} type="button">visited</button>
@@ -964,7 +987,7 @@ function setScreen(next: Screen) {
         {typed}<span class="cursor" class:hide={typingDone}>█</span>
       </div>
     </div>
-  {:else}
+  {:else if screen === "scroll"}
     <div bind:this={scrollContainerElement} class="scrollWebGL visitedLayout">
       <canvas bind:this={canvasElement} class="scrollCanvas"></canvas>
 
@@ -1003,12 +1026,153 @@ function setScreen(next: Screen) {
                 hoveredVisited = null;
                 clearWebGLHover();
               }}
+              on:click={() => openCountry(brand)}
             >
               {brand}
             </li>
           {/each}
         </ul>
         <div class="madeIn">made in 2025</div>
+      </div>
+    </div>
+  {:else}
+    <div
+      class="countryScreen"
+      class:variantDark={selectedCountryVariant === "edinburgh"}
+      class:variantLight={selectedCountryVariant === "palma"}
+    >
+      <!-- Fixed header (matches mock: back at top-left) -->
+      <div class="countryHeader">
+        <button class="backBtn" type="button" on:click={closeCountry}>← back</button>
+        <div class="countryHeaderMid">{selectedCountryVariant === "edinburgh" ? "3:30 pm (uk time)" : "4:30 pm (spain time)"}</div>
+        <div class="countryHeaderRight">
+          <button class="countryMiniBtn" type="button">intro</button>
+          <button class="countryMiniBtn" type="button">visited</button>
+          <button class="countryMiniBtn" type="button">about</button>
+        </div>
+      </div>
+
+      <div class="countryScroller" bind:this={countryScroller} aria-label="country detail scroller">
+        <!-- 4 viewport-sized blocks, separated by padding, single horizontal scroll -->
+
+        <!-- BLOCK 1: Hero (big title left, image, short serif tagline) -->
+        <section class="countryBlock blk1">
+          <div class="blk1Title">
+            {selectedCountryVariant === "edinburgh" ? "Edinburgh" : "Palma"}
+            {#if selectedCountryVariant === "palma"}
+              <span class="blk1Sub">de mallorca</span>
+            {/if}
+          </div>
+
+          <div class="blk1HeroImg">
+            <img
+              src={selectedCountryVariant === "edinburgh" ? "https://picsum.photos/seed/edin-hero-a/1400/900" : "https://picsum.photos/seed/palma-hero-a/1400/900"}
+              alt=""
+              draggable="false"
+            />
+          </div>
+
+          <div class="blk1Serif">
+            {#if selectedCountryVariant === "edinburgh"}
+              <p>Edinburgh is a city where hiking can be part of your daily routine</p>
+            {:else}
+              <p>Palma de mallorca is a city where Golden sunsets is a part of your life</p>
+            {/if}
+          </div>
+        </section>
+
+        <!-- BLOCK 2: Editorial spread (left: title + portrait + small copy, right: wide photo + paragraph) -->
+        <section class="countryBlock blk2">
+          <div class="blk2Left">
+            <div class="blk2Big">
+              {selectedCountryVariant === "edinburgh" ? "Edinburgh" : "Palma"}
+              {#if selectedCountryVariant === "palma"}
+                <span class="blk2BigSub">de mallorca</span>
+              {/if}
+            </div>
+
+            <div class="blk2Portrait">
+              <img
+                src={selectedCountryVariant === "edinburgh" ? "https://picsum.photos/seed/edin-portrait-a/700/900" : "https://picsum.photos/seed/palma-portrait-a/700/900"}
+                alt=""
+                draggable="false"
+              />
+            </div>
+
+            <div class="blk2SmallSerif">
+              {#if selectedCountryVariant === "edinburgh"}
+                is a magic city of castles<br />and Harry Potter
+              {:else}
+                blends historic streets<br />with seaside rest
+              {/if}
+            </div>
+
+            <div class="blk2Micro">
+              <div>— {selectedCountryVariant === "edinburgh" ? "walkable hills" : "waterfront rhythm"}</div>
+              <div>— {selectedCountryVariant === "edinburgh" ? "volcanic views" : "golden light"}</div>
+              <div>— {selectedCountryVariant === "edinburgh" ? "stone + wind" : "sand + shade"}</div>
+            </div>
+          </div>
+
+          <div class="blk2Right">
+            <div class="blk2Wide">
+              <img
+                src={selectedCountryVariant === "edinburgh" ? "https://picsum.photos/seed/edin-wide-a/1600/1000" : "https://picsum.photos/seed/palma-wide-a/1600/1000"}
+                alt=""
+                draggable="false"
+              />
+            </div>
+            <p class="blk2Paragraph">
+              {#if selectedCountryVariant === "edinburgh"}
+                Edinburgh is a city where everyday life feels like a walk through history and nature. Built on hills and volcanic landscapes, it offers a rare balance of urban culture and open trails.
+              {:else}
+                Palma de Mallorca blends historic streets with open waterfront paths, inviting slow days by the seaside. Urban rhythm and island calm coexist in effortless balance.
+              {/if}
+            </p>
+          </div>
+        </section>
+
+        <!-- BLOCK 3: Moments collage (scattered mini images across the block + label) -->
+        <section class="countryBlock blk3">
+          <div class="blk3Label">moments</div>
+          <div class="blk3Collage">
+            {#each Array(14) as _, idx (idx)}
+              <figure class={`blk3Shot s${idx + 1}`}
+                aria-label={`moment-${idx}`}
+              >
+                <img
+                  src={`https://picsum.photos/seed/${encodeURIComponent((selectedCountry ?? "c") + "-mom-" + idx)}/520/520`}
+                  alt=""
+                  draggable="false"
+                />
+                <figcaption>{selectedCountryVariant === "edinburgh" ? "edinburgh" : "palma"}</figcaption>
+              </figure>
+            {/each}
+          </div>
+        </section>
+
+        <!-- BLOCK 4: Month stamp right, big image right, serif note (matches mock’s right-heavy composition) -->
+        <section class="countryBlock blk4">
+          <div class="blk4Month">{selectedCountryVariant === "edinburgh" ? "sep '25" : "jun '24"}</div>
+
+          <div class="blk4RightMedia">
+            <img
+              src={selectedCountryVariant === "edinburgh" ? "https://picsum.photos/seed/edin-last-a/1500/1000" : "https://picsum.photos/seed/palma-last-a/1500/1000"}
+              alt=""
+              draggable="false"
+            />
+          </div>
+
+          <div class="blk4Copy">
+            <p>
+              {#if selectedCountryVariant === "edinburgh"}
+                Edinburgh is a city where hiking can be part of your daily routine
+              {:else}
+                Palma de mallorca is a city where Golden sunsets is a part of your life
+              {/if}
+            </p>
+          </div>
+        </section>
       </div>
     </div>
   {/if}
@@ -1106,6 +1270,13 @@ function setScreen(next: Screen) {
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+  }
+
+  .countryScreen,
+  .countryScreen * {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
   }
 
   /* Prevent images from becoming draggable/ghost-dragged */
@@ -1677,6 +1848,390 @@ function setScreen(next: Screen) {
   .gridViewport.dragging figure.imageItem {
     z-index: 20;
   }
-</style>
+
   
  
+  /* Country detail screen (horizontal 4 blocks) */
+  .countryScreen {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+  }
+
+  .countryScreen.variantLight {
+    background: #e9e7de;
+    color: #000;
+  }
+
+  .countryHeader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    height: 46px;
+    padding: 10px 16px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  .countryHeader > * { pointer-events: auto; }
+
+  .backBtn {
+    justify-self: start;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+    text-transform: lowercase;
+    padding: 0;
+  }
+
+  .countryHeaderMid {
+    justify-self: center;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    opacity: 0.75;
+    text-transform: lowercase;
+  }
+
+  .countryHeaderRight {
+    justify-self: end;
+    display: flex;
+    gap: 10px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    opacity: 0.8;
+    text-transform: lowercase;
+  }
+
+  .countryMiniBtn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: default;
+    padding: 0;
+  }
+
+  .countryScroller {
+    position: absolute;
+    inset: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    gap: 16px;            /* visual separation between blocks */
+    padding: 0 16px;      /* left/right padding like mock */
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .countryScroller::-webkit-scrollbar { height: 0; width: 0; }
+
+  .countryBlock {
+    flex: 0 0 calc(100vw - 32px);
+    width: calc(100vw - 32px);
+    height: 100vh;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    position: relative;
+    box-sizing: border-box;
+    padding: 16px;
+    padding-top: 62px; /* room for header */
+  }
+
+  .countryScreen img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: grayscale(1);
+  }
+
+  /* Block 1 */
+  .blk1Title {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    font-size: clamp(84px, 11vw, 170px);
+    line-height: 0.78;
+    margin-top: 6px;
+  }
+
+  .blk1Sub {
+    display: block;
+    font-weight: 500;
+    letter-spacing: 0;
+    font-size: clamp(16px, 2vw, 22px);
+    line-height: 1.1;
+    margin-top: 10px;
+    font-family: Georgia, serif;
+    opacity: 0.9;
+    text-transform: lowercase;
+  }
+
+  .blk1HeroImg {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-40%);
+    width: min(520px, 36vw);
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+  }
+
+  .blk1Serif {
+    position: absolute;
+    left: 56vw;
+    top: 52%;
+    transform: translateY(-50%);
+    max-width: 34ch;
+    font-family: Georgia, serif;
+    font-size: clamp(18px, 1.8vw, 24px);
+    line-height: 1.05;
+  }
+
+  .blk1Serif p { margin: 0; }
+
+  /* Block 2 */
+  .blk2 {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 18px;
+    align-items: start;
+  }
+
+  .blk2Left {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+
+  .blk2Big {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+    font-size: clamp(84px, 10vw, 160px);
+    line-height: 0.82;
+  }
+
+  .blk2BigSub {
+    display: block;
+    font-family: Georgia, serif;
+    font-size: clamp(16px, 2vw, 22px);
+    font-weight: 500;
+    letter-spacing: 0;
+    margin-top: 8px;
+    opacity: 0.9;
+    text-transform: lowercase;
+  }
+
+  .blk2Portrait {
+    width: min(340px, 32vw);
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+  }
+
+  .blk2SmallSerif {
+    font-family: Georgia, serif;
+    font-size: clamp(18px, 1.9vw, 26px);
+    line-height: 1.05;
+    opacity: 0.95;
+  }
+
+  .blk2Micro {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    line-height: 1.45;
+    opacity: 0.75;
+    text-transform: lowercase;
+  }
+
+  .blk2Right {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+
+  .blk2Wide {
+    width: 100%;
+    height: min(62vh, 640px);
+    overflow: hidden;
+  }
+
+  .blk2Paragraph {
+    margin: 0;
+    max-width: 46ch;
+    font-family: Georgia, serif;
+    font-size: clamp(18px, 1.6vw, 22px);
+    line-height: 1.12;
+  }
+
+  /* Block 3: collage */
+  .blk3Label {
+    position: absolute;
+    top: 62px;
+    left: 16px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: lowercase;
+    opacity: 0.85;
+  }
+
+  .blk3Collage {
+    position: absolute;
+    inset: 62px 16px 16px 16px;
+  }
+
+  .blk3Shot {
+    position: absolute;
+    margin: 0;
+    display: grid;
+    gap: 6px;
+    width: 120px;
+  }
+
+  .blk3Shot img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 2px;
+    filter: grayscale(1);
+  }
+
+  .blk3Shot figcaption {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 10px;
+    opacity: 0.65;
+    text-transform: lowercase;
+  }
+
+  /* Hand-placed scatter positions (approximate the mock) */
+  .blk3Shot.s1  { left: 10%; top: 8%; width: 92px; }
+  .blk3Shot.s2  { left: 22%; top: 18%; width: 112px; }
+  .blk3Shot.s3  { left: 40%; top: 10%; width: 86px; }
+  .blk3Shot.s4  { left: 55%; top: 18%; width: 120px; }
+  .blk3Shot.s5  { left: 70%; top: 6%;  width: 92px; }
+  .blk3Shot.s6  { left: 82%; top: 22%; width: 108px; }
+  .blk3Shot.s7  { left: 12%; top: 44%; width: 120px; }
+  .blk3Shot.s8  { left: 28%; top: 52%; width: 92px; }
+  .blk3Shot.s9  { left: 44%; top: 46%; width: 120px; }
+  .blk3Shot.s10 { left: 62%; top: 50%; width: 92px; }
+  .blk3Shot.s11 { left: 76%; top: 44%; width: 120px; }
+  .blk3Shot.s12 { left: 88%; top: 56%; width: 92px; }
+  .blk3Shot.s13 { left: 54%; top: 72%; width: 120px; }
+  .blk3Shot.s14 { left: 18%; top: 70%; width: 92px; }
+
+  /* Block 4 */
+  .blk4Month {
+    position: absolute;
+    top: 62px;
+    right: 16px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    font-size: clamp(70px, 10vw, 180px);
+    line-height: 0.85;
+    text-transform: lowercase;
+  }
+
+  .blk4RightMedia {
+    position: absolute;
+    right: 16px;
+    top: 52%;
+    transform: translateY(-48%);
+    width: min(520px, 38vw);
+    height: min(70vh, 720px);
+    overflow: hidden;
+  }
+
+  .blk4Copy {
+    position: absolute;
+    left: 16px;
+    top: 56%;
+    transform: translateY(-50%);
+    max-width: 42ch;
+    font-family: Georgia, serif;
+    font-size: clamp(18px, 1.8vw, 24px);
+    line-height: 1.05;
+  }
+
+  .blk4Copy p { margin: 0; }
+
+  @media (max-width: 980px) {
+    .countryScroller {
+      gap: 12px;
+      padding: 0 12px;
+    }
+    .countryBlock {
+      flex: 0 0 calc(100vw - 24px);
+      width: calc(100vw - 24px);
+      padding-top: 58px;
+    }
+
+    .countryHeader {
+      grid-template-columns: 1fr;
+      justify-items: start;
+      height: auto;
+      gap: 6px;
+      padding: 10px 12px;
+    }
+
+    .countryHeaderRight { display: none; }
+
+    .blk1HeroImg {
+      width: min(520px, 78vw);
+      left: 12px;
+      top: 58%;
+    }
+
+    .blk1Serif {
+      left: 12px;
+      top: 38%;
+      transform: none;
+      max-width: 44ch;
+    }
+
+    .blk2 {
+      grid-template-columns: 1fr;
+    }
+
+    .blk2Portrait { width: min(360px, 82vw); }
+    .blk2Wide { height: 44vh; }
+
+    .blk3Shot { width: 92px; }
+
+    .blk4RightMedia {
+      position: relative;
+      right: auto;
+      top: auto;
+      transform: none;
+      width: 100%;
+      height: 52vh;
+      margin-top: 26vh;
+    }
+
+    .blk4Copy {
+      top: 22vh;
+      left: 12px;
+      transform: none;
+    }
+
+    .blk4Month {
+      right: 12px;
+      top: 58px;
+    }
+  }
+  </style>
