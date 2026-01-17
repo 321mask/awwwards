@@ -11,7 +11,33 @@
 
 let screen: Screen = "grid";
 
+
 const SHOW_COLUMN_GUIDES = true;
+
+const TILE_BLEED_PX = 64; // extra padding around each repeating tile so dragged images can overflow without being clipped
+
+// Grid sizing (must match CSS)
+const GRID_COLS = 12;
+const GRID_ROWS = 7;
+const GRID_ROW_H = 150;
+const GRID_GUTTER = 16;
+const GRID_PADDING = 16; // .tileInner padding
+
+function baseTileW() {
+  // Prefer the actual grid viewport size (more reliable during intro/hydration)
+  const w = gridViewport?.clientWidth ?? vw;
+  return w || 0;
+}
+
+function baseTileH() {
+  // total grid height = rows*rowH + (rows-1)*gutter, plus top+bottom padding
+  const gridH = GRID_ROWS * GRID_ROW_H + (GRID_ROWS - 1) * GRID_GUTTER;
+  const contentH = gridH + GRID_PADDING * 2;
+
+  // Prefer the actual grid viewport size (more reliable during intro/hydration)
+  const h = gridViewport?.clientHeight ?? vh;
+  return Math.max(h || 0, contentH);
+}
 
   // --- Scroll screen (WebGL + DOM list) ---
   let canvasElement: HTMLCanvasElement | null = null;
@@ -73,13 +99,67 @@ const SHOW_COLUMN_GUIDES = true;
   const VEL_SMOOTH = 0.18;
   const INERTIA_BOOST = 1.25;
 
-  let vw = 0;
-  let vh = 0;
+let vw = 0;
+let vh = 0;
+let ro: ResizeObserver | null = null;
 
-  function readViewportSize() {
-    vw = typeof window === "undefined" ? 0 : window.innerWidth;
-    vh = typeof window === "undefined" ? 0 : window.innerHeight;
+// Per-device starting Y offset for the infinite grid (matches Figma exports)
+// Air 13" 1280x800  -> -16
+// Pro 14" 1512x945  -> -39
+// Pro 16" 1728x1080 -> -52
+let gridYOffset = 0;
+
+function computeGridYOffset(w: number, _h: number) {
+  // Key off width only because browser UI (Safari top bar, etc.) makes innerHeight unreliable.
+  const targets = [
+    { w: 1280, y: -16 }, // MacBook Air 13"
+    { w: 1512, y: -39 }, // MacBook Pro 14"
+    { w: 1728, y: -52 }  // MacBook Pro 16"
+  ];
+
+  // Pick the closest target by absolute width distance
+  let best = targets[0];
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const t of targets) {
+    const d = Math.abs(w - t.w);
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
   }
+
+  return best.y;
+}
+
+function readViewportSize() {
+  if (typeof window === "undefined") {
+    vw = 0;
+    vh = 0;
+    return;
+  }
+
+  // Prefer actual element size when mounted; fall back to window.
+  const nextVW = gridViewport?.clientWidth ?? window.innerWidth;
+  const nextVH = gridViewport?.clientHeight ?? window.innerHeight;
+
+  // Update viewport vars
+  vw = nextVW;
+  vh = nextVH;
+
+  // Update the baseline grid offset, but do NOT interfere mid-drag.
+  const nextOffset = computeGridYOffset(vw, vh);
+  if (nextOffset !== gridYOffset) {
+    const diff = nextOffset - gridYOffset;
+    gridYOffset = nextOffset;
+
+    // Keep the visual position stable while changing device presets.
+    // Only apply when not actively dragging/pressing.
+    if (!isPointerDown && !isDragging) {
+      camY += diff;
+      camTargetY += diff;
+    }
+  }
+}
 
   function startCamLoop() {
     if (rafCam !== null) return;
@@ -217,17 +297,19 @@ const SHOW_COLUMN_GUIDES = true;
 
   function tileIndexX() {
     // camera translate moves world; invert so index follows world position
-    return vw ? floorDiv(-camX, vw) : 0;
+    const tw = baseTileW();
+    return tw ? floorDiv(-camX, tw) : 0;
   }
   function tileIndexY() {
-    return vh ? floorDiv(-camY, vh) : 0;
+    const th = baseTileH();
+    return th ? floorDiv(-camY, th) : 0;
   }
 
   function tileLeft(ix: number) {
-    return ix * vw;
+    return ix * baseTileW();
   }
   function tileTop(iy: number) {
-    return iy * vh;
+    return iy * baseTileH();
   }
 
   function setScreen(next: Screen) {
@@ -417,14 +499,14 @@ const SHOW_COLUMN_GUIDES = true;
         align?: "left" | "right";
       };
 
-  // NOTE: gridItems positions are aligned to a 12-column grid and a 12-row baseline.
+  // NOTE: gridItems positions are aligned to a 12-column grid and a 7-row baseline.
   const gridItems: GridItem[] = [
     // Row 1 (top)
     {
       kind: "image",
       id: "img-01",
       src: "https://picsum.photos/seed/renata-01/720/300",
-      col: [1, 2],
+      col: [2, 3],
       row: [1, 2],
       captionLeft: "01",
       captionRight: "london, uk"
@@ -437,7 +519,7 @@ const SHOW_COLUMN_GUIDES = true;
       col: [9, 11],
       row: [1, 2],
       captionLeft: "02",
-      captionRight: "eastbourne, uk"
+      captionRight: "funchal, madeira"
     },
 
     // Row 3–4 cluster (matches Figma: one 2×2, one 2×1, several 1×1)
@@ -456,16 +538,16 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-03",
       src: "https://picsum.photos/seed/renata-03/980/420",
       col: [6, 8],
-      row: [3, 4],
+      row: [2, 3],
       captionLeft: "03",
-      captionRight: "funchal, madeira"
+      captionRight: "eastbourne, uk"
     },
 
     {
       kind: "image",
       id: "img-05",
       src: "https://picsum.photos/seed/renata-05/520/680",
-      col: [4, 5],
+      col: [8, 9],
       row: [3, 4],
       captionLeft: "05",
       captionRight: "madeira"
@@ -476,7 +558,7 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-06",
       src: "https://picsum.photos/seed/renata-06/1100/700",
       col: [5, 7],
-      row: [5, 6],
+      row: [4, 5],
       captionLeft: "06",
       captionRight: "gudauri, georgia"
     },
@@ -486,7 +568,7 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-07",
       src: "https://picsum.photos/seed/renata-07/520/620",
       col: [12, 13],
-      row: [5, 6],
+      row: [4, 5],
       captionLeft: "07",
       captionRight: "paris, france"
     },
@@ -497,9 +579,9 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-08",
       src: "https://picsum.photos/seed/renata-08/520/680",
       col: [3, 4],
-      row: [7, 8],
+      row: [5, 6],
       captionLeft: "08",
-      captionRight: "mallorca, spain"
+      captionRight: "spain"
     },
 
     {
@@ -507,7 +589,7 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-10",
       src: "https://picsum.photos/seed/renata-10/900/1200",
       col: [6, 8],
-      row: [7, 9],
+      row: [6, 8],
       captionLeft: "10",
       captionRight: "paris, france"
     },
@@ -516,8 +598,8 @@ const SHOW_COLUMN_GUIDES = true;
       kind: "image",
       id: "img-09",
       src: "https://picsum.photos/seed/renata-09/1400/900",
-      col: [9, 12],
-      row: [7, 9],
+      col: [10, 12],
+      row: [5, 7],
       captionLeft: "09",
       captionRight: "edinburgh, uk"
     },
@@ -527,10 +609,10 @@ const SHOW_COLUMN_GUIDES = true;
       kind: "image",
       id: "img-11",
       src: "https://picsum.photos/seed/renata-11/420/420",
-      col: [1, 2],
-      row: [11, 12],
-      captionLeft: "",
-      captionRight: ""
+      col: [2, 3],
+      row: [7, 8],
+      captionLeft: "01",
+      captionRight: "plane"
     },
 
     {
@@ -538,9 +620,9 @@ const SHOW_COLUMN_GUIDES = true;
       id: "img-12",
       src: "https://picsum.photos/seed/renata-12/420/420",
       col: [9, 10],
-      row: [11, 12],
-      captionLeft: "",
-      captionRight: ""
+      row: [7, 8],
+      captionLeft: "01",
+      captionRight: "plane"
     },
 
     // Bottom meta
@@ -548,7 +630,7 @@ const SHOW_COLUMN_GUIDES = true;
       kind: "text",
       id: "time-left",
       col: [1, 4],
-      row: [12, 13],
+      row: [7, 8],
       html: `<div class="metaSmall">ldn, uk_16:05</div>`,
       align: "left"
     },
@@ -556,7 +638,7 @@ const SHOW_COLUMN_GUIDES = true;
       kind: "text",
       id: "made-right",
       col: [10, 13],
-      row: [12, 13],
+      row: [7, 8],
       html: `<div class="metaSmall" style="text-align:right">made in 2025</div>`,
       align: "right"
     }
@@ -598,6 +680,8 @@ const SHOW_COLUMN_GUIDES = true;
           // Reveal the grid only AFTER the travel/scale animation finishes (matches the reference behavior)
           // Travel transition duration in CSS is 900ms; add a tiny buffer.
           stageTimer2 = window.setTimeout(() => {
+            // Ensure viewport size is correct right before showing the grid
+            readViewportSize();
             gridVisible = true;
           }, 940);
         }, 420);
@@ -610,16 +694,18 @@ const SHOW_COLUMN_GUIDES = true;
 
     readViewportSize();
 
-    // Start centered on the “home tile”
+    // Start centered on the “home tile” with the correct per-device Y offset
     camX = 0;
-    camY = 0;
+    camY = gridYOffset;
     camTargetX = camX;
     camTargetY = camY;
 
     // start title intro on initial load only
     startTitleIntro();
 
-    window.addEventListener("resize", readViewportSize);
+    window.addEventListener("resize", readViewportSize, { passive: true } as any);
+    ro = new ResizeObserver(() => readViewportSize());
+    if (gridViewport) ro.observe(gridViewport);
 
     if (screen === "scroll") {
       startWebGLScroll();
@@ -633,6 +719,7 @@ const SHOW_COLUMN_GUIDES = true;
     scrollCleanup?.();
     scrollCleanup = null;
     window.removeEventListener("resize", readViewportSize);
+    try { ro?.disconnect(); } catch {}
 
     if (typeTimer) window.clearInterval(typeTimer);
     if (stageTimer1) window.clearTimeout(stageTimer1);
@@ -692,7 +779,7 @@ const SHOW_COLUMN_GUIDES = true;
 
             <section
               class="pageTile"
-              style="left:{tileLeft(ix)}px; top:{tileTop(iy)}px; width:{vw}px; height:{vh}px;"
+              style="--tile-bleed:{TILE_BLEED_PX}px; left:{tileLeft(ix) - TILE_BLEED_PX}px; top:{tileTop(iy) - TILE_BLEED_PX}px; width:{baseTileW() + (TILE_BLEED_PX * 2)}px; height:{baseTileH() + (TILE_BLEED_PX * 2)}px;"
               aria-label={`tile-${ix}-${iy}`}
             >
               <div class="tileInner">
@@ -886,7 +973,9 @@ const SHOW_COLUMN_GUIDES = true;
 
   .tileInner {
     position: absolute;
-    inset: 0;
+    /* Inset the inner content by the tile bleed so dragging expansions have room
+       before hitting the tile's clipping boundary. */
+    inset: var(--tile-bleed, 0px);
     padding: 16px;
     box-sizing: border-box;
 
@@ -904,10 +993,10 @@ const SHOW_COLUMN_GUIDES = true;
     width: 100%;
     height: 100%;
 
-    /* Figma grid: 12 columns, 12 rows, 16px gutter, 16px frame padding */
+    /* Figma grid: 12 columns, 7 rows (150px each), 16px gutter, 16px frame padding */
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-template-rows: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(7, 150px);
     column-gap: 16px;
     row-gap: 16px;
     align-content: stretch;
@@ -918,10 +1007,10 @@ const SHOW_COLUMN_GUIDES = true;
     --half-gutter: 8px;
     --guide-line: rgba(0, 0, 0, 0.35);
     --colW: calc((100% - (11 * var(--gutter))) / 12);
-    --rowH: calc((100% - (11 * var(--gutter))) / 12);
+    --rowH: 150px;
   }
 
-  /* Fixed overlay aligned to the same 12×12 grid (does not move with camera) */
+  /* Fixed overlay aligned to the same 12×6 grid (does not move with camera) */
   .fixedOverlay {
     position: absolute;
     inset: 0;
@@ -941,7 +1030,7 @@ const SHOW_COLUMN_GUIDES = true;
     inset: 16px; /* same as .tileInner padding */
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-template-rows: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(7, 150px);
     column-gap: 16px;
     row-gap: 16px;
   }
@@ -949,7 +1038,7 @@ const SHOW_COLUMN_GUIDES = true;
   /* Place the meta text in the same cell area you used before: col 7-12, row 2-3 */
   .fixedMeta {
     grid-column: 7 / 12;
-    grid-row: 2 / 3;
+    grid-row: 1 / 3;
 
     font-family: "Satoshi", system-ui, -apple-system, sans-serif;
     font-size: 13px;
@@ -987,7 +1076,7 @@ const SHOW_COLUMN_GUIDES = true;
     margin-left: 0;
   }
 
-  /* Grid guides overlay: 12 columns + 12 rows, 16px gutters, two thin lines at gutter edges */
+  /* Grid guides overlay: 12 columns + 6 rows, 16px gutters, two thin lines at gutter edges */
   .gridGuides {
     position: absolute;
     inset: 0;
